@@ -75,7 +75,6 @@ def verify_code(code, role, name):
 
 class Launcher:
     def __init__(self):
-        self.CORRECT_CODE = "hYwfg"
         # Define global font settings
         self.title_font = ("Arial", 48, "bold")
         self.normal_font = ("Arial", 18)
@@ -190,73 +189,67 @@ class Launcher:
         canvas.pack()
 
         # Center everything vertically with more spacing
-        center_y = 360  # Middle of 720
-        logo_spacing = 120   # Spacing for logo
-        form_spacing = 80    # Spacing for form elements
+        center_y = 250 # Middle of 720
+        logo_y = 110     # Y position for logo
+        title_y = 210    # Y position for title (below logo)
+        role_y = 290     # Y position for role selection
 
         # Try to load logo image
         try:
-            logo_img = Image.open("icon/app.ico")
+            logo_img = Image.open("icon/logo.png")
             logo_img = logo_img.resize((150, 150))
             self.logo_photo = ImageTk.PhotoImage(logo_img)
-            # Position logo higher up
-            canvas.create_image(610, center_y - logo_spacing, image=self.logo_photo)
-            
-            # Show title text
-            canvas.create_text(610, center_y - logo_spacing + 100, text="Beyond The Brush",
-                              font=self.title_font, fill="white")
+            # Position logo centered horizontally, with fixed y position
+            canvas.create_image(1280//2, logo_y, image=self.logo_photo)
         except FileNotFoundError:
             print("Logo image not found, using text instead")
-            canvas.create_text(610, center_y - logo_spacing + 100, text="Beyond The Brush",
-                              font=self.title_font, fill="white")
+        
+        # Show title text centered below logo
+        canvas.create_text(1280//2, title_y, text="BEYOND THE BRUSH",
+                         font=("Arial", 36, "bold"), fill="white")
 
         # Role selection
         self.role_var = tk.StringVar(value="student")
         
-        # Role selection frame
+        # Role selection frame - centered
         role_frame = tk.Frame(self.root, bg=bg_color)
-        role_frame.place(x=460, y=center_y - 20, width=360, height=40)
+        role_frame.place(relx=0.5, y=role_y, anchor='center', width=300, height=40)
         
-        tk.Radiobutton(role_frame, text="Student", variable=self.role_var, value="student", 
-                      font=self.small_font, bg=bg_color, fg="white", selectcolor="#666666",
+        tk.Radiobutton(role_frame, text="STUDENT", variable=self.role_var, value="student", 
+                      font=("Arial", 14, "bold"), bg=bg_color, fg="white", selectcolor="#666666",
                       activebackground=bg_color, activeforeground="white").pack(side=tk.LEFT, padx=20)
-        tk.Radiobutton(role_frame, text="Educator", variable=self.role_var, value="educator", 
-                      font=self.small_font, bg=bg_color, fg="white", selectcolor="#666666",
+        tk.Radiobutton(role_frame, text="ADMIN", variable=self.role_var, value="educator", 
+                      font=("Arial", 14, "bold"), bg=bg_color, fg="white", selectcolor="#666666",
                       activebackground=bg_color, activeforeground="white").pack(side=tk.LEFT, padx=20)
 
+        # Adjust the positions of the remaining elements to maintain consistent spacing
         # Student name entry (only visible for student role)
         self.name_label = tk.Label(self.root, text="Student Name:", font=self.small_font, 
-                                  bg=bg_color, fg="white")
-        self.name_label.place(x=460, y=center_y + 20, width=120, height=25)
+                                 bg=bg_color, fg="white")
+        self.name_label.place(x=440, y=role_y + 60, width=150, height=25)
         
         self.name_entry = tk.Entry(self.root, font=self.small_font, width=25)
-        self.name_entry.place(x=590, y=center_y + 20, width=200, height=25)
+        self.name_entry.place(x=600, y=role_y + 60, width=200, height=25)
 
         # Access code entry
         self.code_label = tk.Label(self.root, text="Access Code:", font=self.small_font, 
-                                  bg=bg_color, fg="white")
-        self.code_label.place(x=460, y=center_y + 60, width=120, height=25)
+                                 bg=bg_color, fg="white")
+        self.code_label.place(x=440, y=role_y + 100, width=150, height=25)
         
         self.code_entry = tk.Entry(self.root, font=self.small_font, width=25, show="*")
-        self.code_entry.place(x=590, y=center_y + 60, width=200, height=25)
+        self.code_entry.place(x=600, y=role_y + 100, width=200, height=25)
 
-        # Login button
+        # Login button - centered below the form
         login_btn = tk.Button(self.root, text="LOGIN", font=self.normal_font,
                              command=self.verify_and_launch, bg="#ff00ff", fg="white",
                              activebackground="#cc00cc", activeforeground="white")
-        login_btn.place(x=510, y=center_y + 120, width=200, height=60)
+        login_btn.place(x=540, y=role_y + 160, width=200, height=50)
         
-        # # Register button
-        # register_btn = tk.Button(self.root, text="REGISTER", font=self.normal_font,
-        #                         command=self.show_register_page, bg="#ff6600", fg="white",
-        #                         activebackground="#cc5200", activeforeground="white")
-        # register_btn.place(x=510, y=center_y + 200, width=200, height=60)
-        
-        # Exit button
+        # Exit button - positioned below login button
         exit_btn = tk.Button(self.root, text="EXIT", font=self.normal_font,
                              command=self.force_close, bg="#00cc00", fg="white",
                              activebackground="#009900", activeforeground="white")
-        exit_btn.place(x=510, y=center_y + 200, width=200, height=60)
+        exit_btn.place(x=540, y=role_y + 230, width=200, height=50)
 
         # Bind Enter key to login
         self.root.bind('<Return>', lambda event: self.verify_and_launch())
@@ -287,46 +280,77 @@ class Launcher:
         canvas = tk.Canvas(self.root, width=1280, height=720, bg=bg_color)
         canvas.pack()
 
-        # Center everything vertically
-        center_y = 360
+        # Center everything vertically with consistent spacing
+        center_x = 1280 // 2
+        logo_y = 100
+        title_y = 210
+        form_y = 250
+        
+        # Add logo
+        try:
+            logo_img = Image.open("icon/logo.png")
+            logo_img = logo_img.resize((150, 150))
+            self.logo_photo = ImageTk.PhotoImage(logo_img)
+            canvas.create_image(center_x, logo_y, image=self.logo_photo)
+        except FileNotFoundError:
+            print("Logo image not found, using text instead")
+            canvas.create_text(center_x, logo_y, text="Beyond The Brush",
+                             font=self.title_font, fill="white")
 
         # Title
-        canvas.create_text(610, center_y - 200, text="Student Registration",
-                          font=self.title_font, fill="white")
+        canvas.create_text(center_x, title_y, text="Student Registration",
+                         font=("Arial", 36, "bold"), fill="white")
+
+        # Form frame for better organization
+        form_frame = tk.Frame(self.root, bg=bg_color)
+        form_frame.place(relx=0.5, y=form_y, anchor='center')
 
         # Username entry
-        username_label = tk.Label(self.root, text="Username (8 characters):", font=self.small_font, 
-                                 bg=bg_color, fg="white")
-        username_label.place(x=460, y=center_y - 100, width=200, height=25)
+        username_frame = tk.Frame(form_frame, bg=bg_color)
+        username_frame.pack(pady=10, fill='x')
         
-        self.username_entry = tk.Entry(self.root, font=self.small_font, width=25)
-        self.username_entry.place(x=590, y=center_y - 100, width=200, height=25)
+        username_label = tk.Label(username_frame, text="Username (8 characters):", 
+                                font=self.small_font, bg=bg_color, fg="white")
+        username_label.pack(side='left', padx=10)
+        
+        self.username_entry = tk.Entry(username_frame, font=self.small_font, width=25)
+        self.username_entry.pack(side='left')
 
         # Access code entry
-        code_label = tk.Label(self.root, text="Access Code:", font=self.small_font, 
-                             bg=bg_color, fg="white")
-        code_label.place(x=460, y=center_y - 50, width=200, height=25)
+        code_frame = tk.Frame(form_frame, bg=bg_color)
+        code_frame.pack(pady=10, fill='x')
         
-        self.reg_code_entry = tk.Entry(self.root, font=self.small_font, width=25, show="*")
-        self.reg_code_entry.place(x=590, y=center_y - 50, width=200, height=25)
+        code_label = tk.Label(code_frame, text="Access Code:", 
+                            font=self.small_font, bg=bg_color, fg="white")
+        code_label.pack(side='left', padx=10)
+        
+        self.reg_code_entry = tk.Entry(code_frame, font=self.small_font, width=25, show="*")
+        self.reg_code_entry.pack(side='left')
+
+        # Button frame
+        button_frame = tk.Frame(form_frame, bg=bg_color)
+        button_frame.pack(pady=20)
 
         # Register button
-        register_btn = tk.Button(self.root, text="REGISTER", font=self.normal_font,
-                                command=self.register_student, bg="#ff6600", fg="white",
-                                activebackground="#cc5200", activeforeground="white")
-        register_btn.place(x=510, y=center_y + 20, width=200, height=60)
+        register_btn = tk.Button(button_frame, text="REGISTER", font=self.normal_font,
+                               command=self.register_student, bg="#ff6600", fg="white",
+                               activebackground="#cc5200", activeforeground="white",
+                               width=15)
+        register_btn.pack(pady=5)
         
         # Back button
-        back_btn = tk.Button(self.root, text="BACK", font=self.normal_font,
-                            command=self.show_entry_page, bg="#666666", fg="white",
-                            activebackground="#555555", activeforeground="white")
-        back_btn.place(x=510, y=center_y + 100, width=200, height=60)
+        back_btn = tk.Button(button_frame, text="BACK", font=self.normal_font,
+                           command=self.show_entry_page, bg="#666666", fg="white",
+                           activebackground="#555555", activeforeground="white",
+                           width=15)
+        back_btn.pack(pady=5)
         
         # Add access code button (for educators)
-        add_code_btn = tk.Button(self.root, text="ADD ACCESS CODE", font=self.small_font,
-                                command=self.show_add_code_page, bg="#9933cc", fg="white",
-                                activebackground="#7a2999", activeforeground="white")
-        add_code_btn.place(x=510, y=center_y + 160, width=200, height=40)
+        add_code_btn = tk.Button(button_frame, text="ADD ACCESS CODE", font=self.small_font,
+                               command=self.show_add_code_page, bg="#9933cc", fg="white",
+                               activebackground="#7a2999", activeforeground="white",
+                               width=20)
+        add_code_btn.pack(pady=5)
 
     def register_student(self):
         """Register a new student"""
@@ -379,7 +403,7 @@ class Launcher:
         canvas.pack()
 
         # Center everything vertically
-        center_y = 360
+        center_y = 200
 
         # Title
         canvas.create_text(610, center_y - 200, text="Add Access Code",
