@@ -84,6 +84,7 @@ class Launcher:
         # Create a single root window to be reused
         self.root = tk.Tk()
         self.root.title("Beyond The Brush")
+        self.center_window()
         self.root.geometry("1280x720")  # Exact size matching VirtualPainter
         self.root.resizable(False, False)  # Prevent resizing
         
@@ -179,6 +180,9 @@ class Launcher:
         self.show_entry_page()
 
     def show_entry_page(self):
+        # Ensure window is centered
+        self.center_window()
+        
         # Clear any existing widgets
         for widget in self.root.winfo_children():
             widget.destroy()
@@ -189,7 +193,7 @@ class Launcher:
         canvas.pack()
 
         # Center everything vertically with more spacing
-        center_y = 250 # Middle of 720
+        center_y = 360 # Middle of 720
         logo_y = 110     # Y position for logo
         title_y = 210    # Y position for title (below logo)
         role_y = 290     # Y position for role selection
@@ -205,7 +209,7 @@ class Launcher:
             print("Logo image not found, using text instead")
         
         # Show title text centered below logo
-        canvas.create_text(1280//2, title_y, text="BEYOND THE BRUSH",
+        canvas.create_text(1280//2, title_y, text="Beyond The Brush",
                          font=("Arial", 36, "bold"), fill="white")
 
         # Role selection
@@ -213,18 +217,18 @@ class Launcher:
         
         # Role selection frame - centered
         role_frame = tk.Frame(self.root, bg=bg_color)
-        role_frame.place(relx=0.5, y=role_y, anchor='center', width=300, height=40)
+        role_frame.place(relx=0.5, y=role_y, anchor='center', width=360, height=50)
         
-        tk.Radiobutton(role_frame, text="STUDENT", variable=self.role_var, value="student", 
+        tk.Radiobutton(role_frame, text="Student", variable=self.role_var, value="student", 
                       font=("Arial", 14, "bold"), bg=bg_color, fg="white", selectcolor="#666666",
                       activebackground=bg_color, activeforeground="white").pack(side=tk.LEFT, padx=20)
-        tk.Radiobutton(role_frame, text="ADMIN", variable=self.role_var, value="educator", 
+        tk.Radiobutton(role_frame, text="Educator", variable=self.role_var, value="educator", 
                       font=("Arial", 14, "bold"), bg=bg_color, fg="white", selectcolor="#666666",
                       activebackground=bg_color, activeforeground="white").pack(side=tk.LEFT, padx=20)
 
         # Adjust the positions of the remaining elements to maintain consistent spacing
         # Student name entry (only visible for student role)
-        self.name_label = tk.Label(self.root, text="Student Name:", font=self.small_font, 
+        self.name_label = tk.Label(self.root, text="Enter your name:", font=self.small_font, 
                                  bg=bg_color, fg="white")
         self.name_label.place(x=440, y=role_y + 60, width=150, height=25)
         
@@ -232,7 +236,7 @@ class Launcher:
         self.name_entry.place(x=600, y=role_y + 60, width=200, height=25)
 
         # Access code entry
-        self.code_label = tk.Label(self.root, text="Access Code:", font=self.small_font, 
+        self.code_label = tk.Label(self.root, text="Access code:", font=self.small_font, 
                                  bg=bg_color, fg="white")
         self.code_label.place(x=440, y=role_y + 100, width=150, height=25)
         
@@ -240,13 +244,13 @@ class Launcher:
         self.code_entry.place(x=600, y=role_y + 100, width=200, height=25)
 
         # Login button - centered below the form
-        login_btn = tk.Button(self.root, text="LOGIN", font=self.normal_font,
+        login_btn = tk.Button(self.root, text="Enter", font=self.normal_font,
                              command=self.verify_and_launch, bg="#ff00ff", fg="white",
                              activebackground="#cc00cc", activeforeground="white")
         login_btn.place(x=540, y=role_y + 160, width=200, height=50)
         
         # Exit button - positioned below login button
-        exit_btn = tk.Button(self.root, text="EXIT", font=self.normal_font,
+        exit_btn = tk.Button(self.root, text="Exit", font=self.normal_font,
                              command=self.force_close, bg="#00cc00", fg="white",
                              activebackground="#009900", activeforeground="white")
         exit_btn.place(x=540, y=role_y + 230, width=200, height=50)
@@ -261,11 +265,11 @@ class Launcher:
     def on_role_change(self, *args):
         """Update UI elements based on selected role"""
         if self.role_var.get() == "student":
-            self.name_label.config(text="Student Name:")
+            self.name_label.config(text="Enter your name:")
             self.name_entry.config(state="normal")
             self.name_entry.config(bg="white")
         else:
-            self.name_label.config(text="Admin Name:")
+            self.name_label.config(text="Enter your name:")
             self.name_entry.config(state="normal")
             self.name_entry.config(bg="white")
 
@@ -284,7 +288,7 @@ class Launcher:
         center_x = 1280 // 2
         logo_y = 100
         title_y = 210
-        form_y = 250
+        form_y = 290
         
         # Add logo
         try:
@@ -403,7 +407,7 @@ class Launcher:
         canvas.pack()
 
         # Center everything vertically
-        center_y = 200
+        center_y = 360
 
         # Title
         canvas.create_text(610, center_y - 200, text="Add Access Code",
