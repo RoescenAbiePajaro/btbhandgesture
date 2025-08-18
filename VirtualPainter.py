@@ -213,6 +213,7 @@ def on_close():
 running = True
 
 # Main Loop
+# Main Loop
 try:
     while running:
         start_time = time.time()
@@ -223,6 +224,7 @@ try:
             print("Failed to capture image from camera")
             continue
 
+        # Flip the image horizontally for a mirror effect
         img = cv2.flip(img, 1)
 
         # 2. Find Hand Landmarks

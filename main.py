@@ -1,221 +1,135 @@
+# main.py
 import tkinter as tk
 from tkinter import messagebox
 import time
 import sys
 import threading
-import importlib
 from PIL import Image, ImageTk
-import pymongo
 from pymongo import MongoClient
 import os
 from dotenv import load_dotenv
-from register import check_student_exists, is_valid_access_code
 
 # Load environment variables
 load_dotenv()
 
-# MongoDB connection
-try:
-    MONGODB_URI = os.getenv("MONGODB_URI")
-    if not MONGODB_URI:
-        raise ValueError("MONGODB_URI not set in environment variables")
-    
-    # Configure MongoDB client
-    client = MongoClient(
-        MONGODB_URI,
-        tls=True,
-        tlsAllowInvalidCertificates=False,
-        serverSelectionTimeoutMS=5000,
-        connectTimeoutMS=10000,
-        socketTimeoutMS=10000
-    )
-    # Test the connection
-    client.admin.command('ping')
-    db = client["beyond_the_brush"]
-    print("MongoDB connection successful")
-except Exception as e:
-    print(f"MongoDB connection failed: {str(e)}")
-    db = None
-
-# Preload modules in background
-def preload_modules():
+# MongoDB connection - moved to separate function for reuse
+def get_db_connection():
     try:
-        # Remove VirtualPainter from preload
-        import cv2
-        import numpy as np
-        import HandTrackingModule
-        import KeyboardInput
+        MONGODB_URI = os.getenv("MONGODB_URI")
+        if not MONGODB_URI:
+            raise ValueError("MONGODB_URI not set in environment variables")
+        
+        client = MongoClient(
+            MONGODB_URI,
+            tls=True,
+            tlsAllowInvalidCertificates=False,
+            serverSelectionTimeoutMS=5000,
+            connectTimeoutMS=10000,
+            socketTimeoutMS=10000
+        )
+        client.admin.command('ping')
+        db = client["beyond_the_brush"]
+        print("MongoDB connection successful")
+        return db
     except Exception as e:
-        print(f"Preloading error: {e}")
+        print(f"MongoDB connection failed: {str(e)}")
+        return None
 
-# --- VERIFICATION LOGIC ---
-def verify_code(code, role, name):
-    if db is None:
-        messagebox.showerror("Error", "Database connection not available")
-        return False
-    
-    try:
-        if role == "student":
-            # For students, check if they exist with the given name and access code
-            if check_student_exists(name, code):
-                return True, "student", name
-            else:
-                return False, None, None
-        elif role == "educator":
-            # For educators, check if the access code is valid
-            if is_valid_access_code(code):
-                return True, "educator", name
-            else:
-                return False, None, None
-        else:
-            return False, None, None
-    except Exception as e:
-        print(f"Verification error: {e}")
-        return False, None, None
+# Global db connection
+db = get_db_connection()
 
 class Launcher:
     def __init__(self):
-        # Define global font settings
         self.title_font = ("Arial", 48, "bold")
         self.normal_font = ("Arial", 18)
         self.loading_font = ("Arial", 24)
         self.small_font = ("Arial", 14)
         
-        # Create a single root window to be reused
         self.root = tk.Tk()
         self.root.title("Beyond The Brush")
         self.center_window()
-        self.root.geometry("1280x720")  # Exact size matching VirtualPainter
-        self.root.resizable(False, False)  # Prevent resizing
+        self.root.geometry("1280x720")
+        self.root.resizable(False, False)
         
-        # Set the window icon
         try:
-            # For Windows, use the .ico file directly with wm_iconbitmap
             if sys.platform == "win32":
                 self.root.wm_iconbitmap("icon/app.ico")
             else:
-                # For other platforms, use a PNG with PhotoImage
                 icon_img = tk.PhotoImage(file="icon/app.ico")
                 self.root.iconphoto(True, icon_img)
         except Exception as e:
             print(f"Could not set icon: {e}")
-            # Fallback: try to load icon using PIL which has better format support
-            try:
-                from PIL import Image, ImageTk
-                icon = Image.open("icon/app.ico")
-                icon_photo = ImageTk.PhotoImage(icon)
-                self.root.iconphoto(True, icon_photo)
-            except Exception as e2:
-                print(f"Fallback icon loading also failed: {e2}")
         
-        # Set up protocol to force close when X button is clicked
         self.root.protocol("WM_DELETE_WINDOW", self.force_close)
-        
-        # Center the window on screen
         self.center_window()
-        
-        # Start preloading in background during loading screen
-        self.preload_thread = threading.Thread(target=preload_modules)
-        self.preload_thread.daemon = True
-        self.preload_thread.start()
-        
         self.show_loading_screen()
-        
-        # Only call mainloop once, at the end of initialization
         self.root.mainloop()
 
     def center_window(self):
-        # Get screen width and height
         screen_width = self.root.winfo_screenwidth()
         screen_height = self.root.winfo_screenheight()
-        
-        # Calculate position coordinates
         x = (screen_width - 1280) // 2
         y = (screen_height - 720) // 2
-        
-        # Set the position
         self.root.geometry(f"1280x720+{x}+{y}")
 
     def show_loading_screen(self):
-        # Clear any existing widgets
         for widget in self.root.winfo_children():
             widget.destroy()
         
         canvas = tk.Canvas(self.root, width=1280, height=720)
         canvas.pack()
-        
-        # Background - #383232 as requested
         bg_color = "#383232"
         canvas.create_rectangle(0, 0, 1280, 720, fill=bg_color, outline="")
         
-        # Try to load logo image
         try:
             logo_img = Image.open("icon/logo.png")
             logo_img = logo_img.resize((200, 200))
             self.logo_photo = ImageTk.PhotoImage(logo_img)
             canvas.create_image(610, 150, image=self.logo_photo)
         except FileNotFoundError:
-            print("Logo image not found, using text instead")
             canvas.create_text(610, 150, text="Beyond The Brush",
-                               font=self.title_font, fill="white")
+                             font=self.title_font, fill="white")
 
-        # Loading text with loading font
         canvas.create_text(610, 360, text="Loading...",
-                           font=self.loading_font, fill="white")
+                         font=self.loading_font, fill="white")
+        progress = canvas.create_rectangle(410, 400, 410, 430, fill="#2575fc", outline="")
 
-        # Progress bar
-        progress = canvas.create_rectangle(410, 400, 410, 430, fill="#3498db", outline="")
-
-        # Animate progress bar
         for i in range(1, 101):
-            # Check if window still exists before updating
             try:
                 canvas.coords(progress, 410, 400, 410 + (i * 4), 430)
                 self.root.update()
                 time.sleep(0.03)
             except tk.TclError:
-                # Window was closed during loading
                 return
 
         self.show_entry_page()
 
     def show_entry_page(self):
-        # Ensure window is centered
         self.center_window()
-        
-        # Clear any existing widgets
         for widget in self.root.winfo_children():
             widget.destroy()
         
-        # Background - #383232
         bg_color = "#383232"
         canvas = tk.Canvas(self.root, width=1280, height=720, bg=bg_color)
         canvas.pack()
 
-        # Center everything vertically with more spacing
-        center_y = 360 # Middle of 720
-        logo_y = 110     # Y position for logo
-        title_y = 210    # Y position for title (below logo)
-        role_y = 290     # Y position for role selection
+        center_y = 360
+        logo_y = 110
+        title_y = 210
+        role_y = 290
 
-        # Try to load logo image
         try:
             logo_img = Image.open("icon/logo.png")
             logo_img = logo_img.resize((150, 150))
             self.logo_photo = ImageTk.PhotoImage(logo_img)
-            # Position logo centered horizontally, with fixed y position
             canvas.create_image(1280//2, logo_y, image=self.logo_photo)
         except FileNotFoundError:
-            print("Logo image not found, using text instead")
+            pass
         
-        # Show title text centered below logo
         canvas.create_text(1280//2, title_y, text="Beyond The Brush",
                          font=("Arial", 36, "bold"), fill="white")
 
-        # Role selection
         self.role_var = tk.StringVar(value="student")
-        
-        # Role selection frame - centered
         role_frame = tk.Frame(self.root, bg=bg_color)
         role_frame.place(relx=0.5, y=role_y, anchor='center', width=360, height=50)
         
@@ -226,8 +140,6 @@ class Launcher:
                       font=("Arial", 14, "bold"), bg=bg_color, fg="white", selectcolor="#666666",
                       activebackground=bg_color, activeforeground="white").pack(side=tk.LEFT, padx=20)
 
-        # Adjust the positions of the remaining elements to maintain consistent spacing
-        # Student name entry (only visible for student role)
         self.name_label = tk.Label(self.root, text="Enter your name:", font=self.small_font, 
                                  bg=bg_color, fg="white")
         self.name_label.place(x=440, y=role_y + 60, width=150, height=25)
@@ -235,7 +147,6 @@ class Launcher:
         self.name_entry = tk.Entry(self.root, font=self.small_font, width=25)
         self.name_entry.place(x=600, y=role_y + 60, width=200, height=25)
 
-        # Access code entry
         self.code_label = tk.Label(self.root, text="Access code:", font=self.small_font, 
                                  bg=bg_color, fg="white")
         self.code_label.place(x=440, y=role_y + 100, width=150, height=25)
@@ -243,225 +154,81 @@ class Launcher:
         self.code_entry = tk.Entry(self.root, font=self.small_font, width=25, show="*")
         self.code_entry.place(x=600, y=role_y + 100, width=200, height=25)
 
-        # Login button - centered below the form
         login_btn = tk.Button(self.root, text="Enter", font=self.normal_font,
-                             command=self.verify_and_launch, bg="#ff00ff", fg="white",
-                             activebackground="#cc00cc", activeforeground="white")
+                             command=self.verify_and_launch, bg="#2575fc", fg="white",
+                             activebackground="#2575fc", activeforeground="white")
         login_btn.place(x=540, y=role_y + 160, width=200, height=50)
         
-        # Exit button - positioned below login button
         exit_btn = tk.Button(self.root, text="Exit", font=self.normal_font,
-                             command=self.force_close, bg="#00cc00", fg="white",
-                             activebackground="#009900", activeforeground="white")
+                             command=self.force_close, bg="#ff00ff", fg="white",
+                             activebackground="#ff00ff", activeforeground="white")
         exit_btn.place(x=540, y=role_y + 230, width=200, height=50)
 
-        # Bind Enter key to login
         self.root.bind('<Return>', lambda event: self.verify_and_launch())
-        
-        # Update UI based on role selection
         self.role_var.trace('w', self.on_role_change)
         self.on_role_change()
 
     def on_role_change(self, *args):
-        """Update UI elements based on selected role"""
         if self.role_var.get() == "student":
             self.name_label.config(text="Enter your name:")
             self.name_entry.config(state="normal")
             self.name_entry.config(bg="white")
         else:
-            self.name_label.config(text="Enter your name:")
+            self.name_label.config(text="Educator Name:")
             self.name_entry.config(state="normal")
             self.name_entry.config(bg="white")
 
-    def show_register_page(self):
-        """Show the student registration page"""
-        # Clear any existing widgets
-        for widget in self.root.winfo_children():
-            widget.destroy()
-        
-        # Background - #383232
-        bg_color = "#383232"
-        canvas = tk.Canvas(self.root, width=1280, height=720, bg=bg_color)
-        canvas.pack()
-
-        # Center everything vertically with consistent spacing
-        center_x = 1280 // 2
-        logo_y = 100
-        title_y = 210
-        form_y = 290
-        
-        # Add logo
-        try:
-            logo_img = Image.open("icon/logo.png")
-            logo_img = logo_img.resize((150, 150))
-            self.logo_photo = ImageTk.PhotoImage(logo_img)
-            canvas.create_image(center_x, logo_y, image=self.logo_photo)
-        except FileNotFoundError:
-            print("Logo image not found, using text instead")
-            canvas.create_text(center_x, logo_y, text="Beyond The Brush",
-                             font=self.title_font, fill="white")
-
-        # Title
-        canvas.create_text(center_x, title_y, text="Student Registration",
-                         font=("Arial", 36, "bold"), fill="white")
-
-        # Form frame for better organization
-        form_frame = tk.Frame(self.root, bg=bg_color)
-        form_frame.place(relx=0.5, y=form_y, anchor='center')
-
-        # Username entry
-        username_frame = tk.Frame(form_frame, bg=bg_color)
-        username_frame.pack(pady=10, fill='x')
-        
-        username_label = tk.Label(username_frame, text="Username (8 characters):", 
-                                font=self.small_font, bg=bg_color, fg="white")
-        username_label.pack(side='left', padx=10)
-        
-        self.username_entry = tk.Entry(username_frame, font=self.small_font, width=25)
-        self.username_entry.pack(side='left')
-
-        # Access code entry
-        code_frame = tk.Frame(form_frame, bg=bg_color)
-        code_frame.pack(pady=10, fill='x')
-        
-        code_label = tk.Label(code_frame, text="Access Code:", 
-                            font=self.small_font, bg=bg_color, fg="white")
-        code_label.pack(side='left', padx=10)
-        
-        self.reg_code_entry = tk.Entry(code_frame, font=self.small_font, width=25, show="*")
-        self.reg_code_entry.pack(side='left')
-
-        # Button frame
-        button_frame = tk.Frame(form_frame, bg=bg_color)
-        button_frame.pack(pady=20)
-
-        # Register button
-        register_btn = tk.Button(button_frame, text="REGISTER", font=self.normal_font,
-                               command=self.register_student, bg="#ff6600", fg="white",
-                               activebackground="#cc5200", activeforeground="white",
-                               width=15)
-        register_btn.pack(pady=5)
-        
-        # Back button
-        back_btn = tk.Button(button_frame, text="BACK", font=self.normal_font,
-                           command=self.show_entry_page, bg="#666666", fg="white",
-                           activebackground="#555555", activeforeground="white",
-                           width=15)
-        back_btn.pack(pady=5)
-        
-        # Add access code button (for educators)
-        add_code_btn = tk.Button(button_frame, text="ADD ACCESS CODE", font=self.small_font,
-                               command=self.show_add_code_page, bg="#9933cc", fg="white",
-                               activebackground="#7a2999", activeforeground="white",
-                               width=20)
-        add_code_btn.pack(pady=5)
-
-    def register_student(self):
-        """Register a new student"""
-        username = self.username_entry.get().strip()
-        access_code = self.reg_code_entry.get().strip()
-        
-        if not username or not access_code:
-            messagebox.showerror("Error", "Please fill in all fields")
-            return
-        
-        if len(username) != 8:
-            messagebox.showerror("Error", "Username must be exactly 8 characters long")
-            return
+    def verify_code(self, code, role, name):
+        global db
+        if db is None:
+            db = get_db_connection()
+            if db is None:
+                messagebox.showerror("Error", "Database connection not available")
+                return False, None, None
         
         try:
-            # Check if username already exists
-            if check_student_exists(username, access_code):
-                messagebox.showerror("Error", "This username is already registered")
-                return
+            access_codes_collection = db["access_codes"]
+            students_collection = db["students"]
             
-            # Check if access code is valid
-            if not is_valid_access_code(access_code):
-                messagebox.showerror("Error", "Invalid access code")
-                return
+            code_data = access_codes_collection.find_one({"code": code, "is_active": True})
             
-            # Register the student
-            from register import students_collection
-            student_data = {
-                "name": username,
-                "access_code": access_code,
-                "registered_at": time.time()
-            }
-            students_collection.insert_one(student_data)
+            if not code_data:
+                messagebox.showerror("Error", "Invalid or inactive access code")
+                return False, None, None
             
-            messagebox.showinfo("Success", "Student registered successfully!")
-            self.show_entry_page()
+            is_admin_code = code_data.get('is_admin_code', False)
             
-        except Exception as e:
-            messagebox.showerror("Error", f"Registration failed: {str(e)}")
-
-    def show_add_code_page(self):
-        """Show the add access code page for educators"""
-        # Clear any existing widgets
-        for widget in self.root.winfo_children():
-            widget.destroy()
-        
-        # Background - #383232
-        bg_color = "#383232"
-        canvas = tk.Canvas(self.root, width=1280, height=720, bg=bg_color)
-        canvas.pack()
-
-        # Center everything vertically
-        center_y = 360
-
-        # Title
-        canvas.create_text(610, center_y - 200, text="Add Access Code",
-                          font=self.title_font, fill="white")
-
-        # Access code entry
-        code_label = tk.Label(self.root, text="New Access Code:", font=self.small_font, 
-                             bg=bg_color, fg="white")
-        code_label.place(x=460, y=center_y - 100, width=200, height=25)
-        
-        self.new_code_entry = tk.Entry(self.root, font=self.small_font, width=25)
-        self.new_code_entry.place(x=590, y=center_y - 100, width=200, height=25)
-
-        # Educator ID entry
-        educator_label = tk.Label(self.root, text="Educator ID (optional):", font=self.small_font, 
-                                 bg=bg_color, fg="white")
-        educator_label.place(x=460, y=center_y - 50, width=200, height=25)
-        
-        self.educator_entry = tk.Entry(self.root, font=self.small_font, width=25)
-        self.educator_entry.place(x=590, y=center_y - 50, width=200, height=25)
-
-        # Add button
-        add_btn = tk.Button(self.root, text="ADD CODE", font=self.normal_font,
-                           command=self.add_access_code, bg="#9933cc", fg="white",
-                           activebackground="#7a2999", activeforeground="white")
-        add_btn.place(x=510, y=center_y + 20, width=200, height=60)
-        
-        # Back button
-        back_btn = tk.Button(self.root, text="BACK", font=self.normal_font,
-                            command=self.show_register_page, bg="#666666", fg="white",
-                            activebackground="#555555", activeforeground="white")
-        back_btn.place(x=510, y=center_y + 100, width=200, height=60)
-
-    def add_access_code(self):
-        """Add a new access code"""
-        code = self.new_code_entry.get().strip()
-        educator_id = self.educator_entry.get().strip()
-        
-        if not code:
-            messagebox.showerror("Error", "Please enter an access code")
-            return
-        
-        try:
-            from register import add_access_code
-            if add_access_code(code, educator_id):
-                messagebox.showinfo("Success", "Access code added successfully!")
-                self.show_register_page()
+            if role == "student" and is_admin_code:
+                messagebox.showerror("Error", "Students cannot use admin access codes")
+                return False, None, None
+                
+            if role == "educator" and not is_admin_code:
+                messagebox.showerror("Error", "Educators must use admin access codes")
+                return False, None, None
+                
+            if role == "student":
+                student_data = students_collection.find_one({"access_code": code, "name": name})
+                
+                if student_data:
+                    return True, "student", name
+                else:
+                    if messagebox.askyesno("Registration", "Student not found. Would you like to register?"):
+                        return False, "register", name
+                    return False, None, None
+                    
+            elif role == "educator":
+                if code_data:
+                    return True, "educator", name
+                else:
+                    return False, None, None
             else:
-                messagebox.showerror("Error", "Failed to add access code")
+                return False, None, None
+                
         except Exception as e:
-            messagebox.showerror("Error", f"Failed to add access code: {str(e)}")
+            messagebox.showerror("Error", f"Verification failed: {str(e)}")
+            return False, None, None
 
     def verify_and_launch(self):
-        """Verify credentials and launch application"""
         role = self.role_var.get()
         name = self.name_entry.get().strip()
         code = self.code_entry.get().strip()
@@ -474,29 +241,134 @@ class Launcher:
             messagebox.showerror("Error", "Please enter your name")
             return
         
-        # Verify the code
-        success, user_type, username = verify_code(code, role, name)
+        success, user_type, username = self.verify_code(code, role, name)
         
         if success:
             messagebox.showinfo("Success", f"Access granted for {user_type}!")
             self.launch_application(user_type, username)
+        elif user_type == "register":
+            self.show_register_page(name, code)
         else:
             if role == "student":
                 messagebox.showerror("Error", "Invalid name or access code")
             else:
                 messagebox.showerror("Error", "Invalid access code")
 
+    def show_register_page(self, name="", code=""):
+        for widget in self.root.winfo_children():
+            widget.destroy()
+        
+        bg_color = "#383232"
+        canvas = tk.Canvas(self.root, width=1280, height=720, bg=bg_color)
+        canvas.pack()
+
+        center_x = 1280 // 2
+        logo_y = 100
+        title_y = 210
+        form_y = 290
+        
+        try:
+            logo_img = Image.open("icon/logo.png")
+            logo_img = logo_img.resize((150, 150))
+            self.logo_photo = ImageTk.PhotoImage(logo_img)
+            canvas.create_image(center_x, logo_y, image=self.logo_photo)
+        except FileNotFoundError:
+            canvas.create_text(center_x, logo_y, text="Beyond The Brush",
+                             font=self.title_font, fill="white")
+
+        canvas.create_text(center_x, title_y, text="Student Registration",
+                         font=("Arial", 36, "bold"), fill="white")
+
+        form_frame = tk.Frame(self.root, bg=bg_color)
+        form_frame.place(relx=0.5, y=form_y, anchor='center')
+
+        name_frame = tk.Frame(form_frame, bg=bg_color)
+        name_frame.pack(pady=10, fill='x')
+        
+        name_label = tk.Label(name_frame, text="Full Name:", 
+                            font=self.small_font, bg=bg_color, fg="white")
+        name_label.pack(side='left', padx=10)
+        
+        self.reg_name_entry = tk.Entry(name_frame, font=self.small_font, width=25)
+        self.reg_name_entry.insert(0, name)
+        self.reg_name_entry.pack(side='left')
+
+        code_frame = tk.Frame(form_frame, bg=bg_color)
+        code_frame.pack(pady=10, fill='x')
+        
+        code_label = tk.Label(code_frame, text="Access Code:", 
+                            font=self.small_font, bg=bg_color, fg="white")
+        code_label.pack(side='left', padx=10)
+        
+        self.reg_code_entry = tk.Entry(code_frame, font=self.small_font, width=25, show="*")
+        self.reg_code_entry.insert(0, code)
+        self.reg_code_entry.pack(side='left')
+
+        button_frame = tk.Frame(form_frame, bg=bg_color)
+        button_frame.pack(pady=20)
+
+        register_btn = tk.Button(button_frame, text="REGISTER", font=self.normal_font,
+                               command=self.register_student, bg="#ff6600", fg="white",
+                               activebackground="#cc5200", activeforeground="white",
+                               width=15)
+        register_btn.pack(pady=5)
+        
+        back_btn = tk.Button(button_frame, text="BACK", font=self.normal_font,
+                           command=self.show_entry_page, bg="#666666", fg="white",
+                           activebackground="#555555", activeforeground="white",
+                           width=15)
+        back_btn.pack(pady=5)
+
+    def register_student(self):
+        name = self.reg_name_entry.get().strip()
+        code = self.reg_code_entry.get().strip()
+        
+        if not name or not code:
+            messagebox.showerror("Error", "Please fill in all fields")
+            return
+        
+        if len(name) < 3:
+            messagebox.showerror("Error", "Name must be at least 3 characters")
+            return
+        
+        try:
+            access_codes_collection = db["access_codes"]
+            students_collection = db["students"]
+            
+            code_data = access_codes_collection.find_one({"code": code, "is_active": True})
+            if not code_data:
+                messagebox.showerror("Error", "Invalid access code")
+                return
+                
+            if code_data.get('is_admin_code', False):
+                messagebox.showerror("Error", "Cannot register with admin code")
+                return
+                
+            existing_student = students_collection.find_one({"name": name})
+            if existing_student:
+                messagebox.showerror("Error", "Student already exists")
+                return
+                
+            students_collection.insert_one({
+                "name": name,
+                "access_code": code,
+                "registered_at": time.time()
+            })
+            
+            messagebox.showinfo("Success", "Registration successful!")
+            self.launch_application("student", name)
+            
+        except Exception as e:
+            messagebox.showerror("Error", f"Registration failed: {str(e)}")
+
     def launch_application(self, user_type, username):
-        # Close entry window and launch the application
         self.root.destroy()
         self.launch_VirtualPainter_program(user_type, username)
 
     def launch_VirtualPainter_program(self, user_type, username):
-        """Launch VirtualPainter directly after successful login"""
         try:
             print(f"Launching VirtualPainter as {user_type}: {username}")
             
-            # Safely destroy the root window if it exists
             try:
                 if self.root and self.root.winfo_exists():
                     self.root.destroy()
@@ -504,11 +376,7 @@ class Launcher:
                 print(f"Warning: Could not destroy root window: {e}")
             
             try:
-                # Import VirtualPainter only when needed
-                global VirtualPainter
                 import VirtualPainter
-                
-                # Call the run_application function with user type and username
                 VirtualPainter.run_application(user_type, username)
             except ImportError as ie:
                 print(f"Failed to import VirtualPainter: {ie}")
@@ -525,10 +393,8 @@ class Launcher:
             sys.exit(1)
 
     def force_close(self):
-        """Force close the application when X button is clicked"""
         self.root.destroy()
-        sys.exit(0)  # Force exit the program
-
+        sys.exit(0)
 
 if __name__ == "__main__":
     try:
