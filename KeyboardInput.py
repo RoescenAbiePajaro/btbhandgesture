@@ -40,21 +40,55 @@ class KeyboardInput:
         if not self.active:
             return False
 
+        # Check if we're editing a selected text object
+        selected_index = self.get_selected_index()
+        
         if key == 13:  # Enter key
-            if self.text:
-                self.add_text_object()
+            if selected_index >= 0:
+                # Finish editing selected text
+                self.clear_selection()
                 self.text = ""
-                # Create new text at current drag position
-                self.current_input_position = self.current_input_position
+            else:
+                if self.text:
+                    # Add new text object at left side
+                    left_position = (50, self.current_input_position[1])
+                    self.text_objects.append({
+                        'text': self.text,
+                        'position': left_position,
+                        'color': self.default_color,
+                        'font': self.default_font,
+                        'scale': self.default_scale,
+                        'thickness': self.default_thickness,
+                        'selected': False
+                    })
+                    self.text = ""
+                    self.current_input_position = (640, 360)
             return True
         elif key == 8:  # Backspace
-            self.text = self.text[:-1]
+            if selected_index >= 0:
+                # Edit the selected text
+                self.text_objects[selected_index]['text'] = self.text_objects[selected_index]['text'][:-1]
+                if not self.text_objects[selected_index]['text']:
+                    self.delete_selected()
+            else:
+                self.text = self.text[:-1]
             return True
         elif 32 <= key <= 126:  # Printable ASCII characters
-            self.text += chr(key)
+            if selected_index >= 0:
+                # Edit the selected text
+                self.text_objects[selected_index]['text'] += chr(key)
+            else:
+                self.text += chr(key)
             return True
 
         return False
+
+    def get_selected_index(self):
+        """Get the index of currently selected text object"""
+        for i, obj in enumerate(self.text_objects):
+            if obj['selected']:
+                return i
+        return -1
 
     def add_text_object(self):
         if not self.text:
@@ -222,16 +256,20 @@ class KeyboardInput:
 
             if (text_left <= x <= text_right and
                     text_top <= y <= text_bottom):
+                # Double click detection (you may need to implement this)
+                # For now, single click will make text editable
                 # Deselect all other objects
-                for obj in self.text_objects:
-                    obj['selected'] = False
+                for other_obj in self.text_objects:
+                    other_obj['selected'] = False
                 # Select this object
                 self.text_objects[idx]['selected'] = True
                 self.drag_object_index = idx
                 self.drag_offset = (x - obj['position'][0], y - obj['position'][1])
                 self.dragging = True
+                # Make keyboard active when selecting text
+                self.active = True
                 return True
-
+    
         # Then check if we're dragging current input text (only if keyboard active)
         if self.active and (self.text or self.cursor_visible):
             text_size = cv2.getTextSize(
