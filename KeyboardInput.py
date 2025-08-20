@@ -1,6 +1,7 @@
 import cv2
 import numpy as np
 from collections import deque
+import time
 
 class KeyboardInput:
     def __init__(self):
@@ -26,6 +27,12 @@ class KeyboardInput:
         self.text_history = []  # To store text object states for undo/redo
         self.history_index = -1
 
+        self.last_key_time = time.time()
+        self.key_repeat_delay = 0.03  # Faster repeat rate
+        self.initial_delay = 0.2  # Shorter initial delay
+        self.last_key = None
+        self.smooth_text = []  # Buffer for smooth text rendering
+        self.text_fade_in = 1.0  # Text fade-in animation
 
     def toggle_keyboard_mode(self):
         self.active = not self.active
@@ -40,7 +47,20 @@ class KeyboardInput:
         if not self.active:
             return False
 
-        # Check if we're editing a selected text object
+        current_time = time.time()
+        time_since_last_key = current_time - self.last_key_time
+
+        # Handle key repeat logic
+        if key == self.last_key and time_since_last_key < self.key_repeat_delay:
+            return False
+
+        # Reset repeat timer if different key
+        if key != self.last_key:
+            self.last_key_time = current_time - self.initial_delay
+            self.last_key = key
+        else:
+            self.last_key_time = current_time
+
         selected_index = self.get_selected_index()
         
         if key == 13:  # Enter key
@@ -66,19 +86,37 @@ class KeyboardInput:
             return True
         elif key == 8:  # Backspace
             if selected_index >= 0:
-                # Edit the selected text
-                self.text_objects[selected_index]['text'] = self.text_objects[selected_index]['text'][:-1]
+                text = self.text_objects[selected_index]['text']
+                # Fast backspace when held
+                chars_to_delete = 1
+                if time_since_last_key < self.key_repeat_delay:
+                    chars_to_delete = min(3, len(text))
+                self.text_objects[selected_index]['text'] = text[:-chars_to_delete]
                 if not self.text_objects[selected_index]['text']:
                     self.delete_selected()
             else:
-                self.text = self.text[:-1]
+                chars_to_delete = 1
+                if time_since_last_key < self.key_repeat_delay:
+                    chars_to_delete = min(3, len(self.text))
+                self.text = self.text[:-chars_to_delete]
             return True
         elif 32 <= key <= 126:  # Printable ASCII characters
             if selected_index >= 0:
-                # Edit the selected text
                 self.text_objects[selected_index]['text'] += chr(key)
+                # Add to smooth text buffer
+                self.smooth_text.append({
+                    'char': chr(key),
+                    'alpha': 0,
+                    'target_pos': len(self.text_objects[selected_index]['text']) - 1
+                })
             else:
                 self.text += chr(key)
+                # Add to smooth text buffer
+                self.smooth_text.append({
+                    'char': chr(key),
+                    'alpha': 0,
+                    'target_pos': len(self.text) - 1
+                })
             return True
 
         return False
@@ -146,14 +184,20 @@ class KeyboardInput:
         if not self.active:
             return
 
-        # Update cursor blink timer
+        # Update cursor blink
         self.cursor_timer += dt
         if self.cursor_timer >= self.cursor_blink_interval:
             self.cursor_timer = 0
             self.cursor_visible = not self.cursor_visible
 
+        # Update smooth text animations
+        for char_data in self.smooth_text[:]:
+            char_data['alpha'] = min(1.0, char_data['alpha'] + dt * 5)
+            if char_data['alpha'] >= 1.0:
+                self.smooth_text.remove(char_data)
+
     def draw(self, img):
-        # Draw all existing text objects (always draw these)
+        # Draw all existing text objects
         for i, obj in enumerate(self.text_objects):
             # Draw outline
             cv2.putText(
@@ -194,31 +238,33 @@ class KeyboardInput:
                 )
                 cv2.rectangle(img, top_left, bottom_right, (0, 255, 0), 2)
 
-        # Only draw current input text and cursor if keyboard is active
+        # Draw current input text with smooth animation
         if self.active and (self.text or self.cursor_visible):
-            # Draw outline
-            cv2.putText(
-                img,
-                self.text,
-                self.current_input_position,
-                self.default_font,
-                self.default_scale,
-                self.outline_color,
-                self.outline_thickness
-            )
+            base_text = self.text
+            
+            # Draw smooth text animations
+            for char_data in self.smooth_text:
+                pos = char_data['target_pos']
+                alpha = char_data['alpha']
+                color = tuple(int(c * alpha) for c in self.default_color)
+                
+                text_before = base_text[:pos]
+                text_size = cv2.getTextSize(text_before, self.default_font, 
+                                          self.default_scale, self.default_thickness)[0]
+                
+                char_pos = (self.current_input_position[0] + text_size[0],
+                           self.current_input_position[1])
+                
+                # Draw animated character
+                cv2.putText(img, char_data['char'], char_pos, self.default_font,
+                           self.default_scale, color, self.default_thickness)
 
             # Draw main text
-            cv2.putText(
-                img,
-                self.text,
-                self.current_input_position,
-                self.default_font,
-                self.default_scale,
-                self.default_color,
-                self.default_thickness
-            )
+            cv2.putText(img, self.text, self.current_input_position,
+                       self.default_font, self.default_scale,
+                       self.default_color, self.default_thickness)
 
-            # Draw cursor if visible
+            # Draw cursor
             if self.cursor_visible:
                 text_size = cv2.getTextSize(
                     self.text,
