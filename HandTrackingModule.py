@@ -5,7 +5,7 @@ import time
 import os
 
 class handDetector:
-    def __init__(self, mode=False, maxHands=2, detectionCon=0.5, trackCon=0.5):
+    def __init__(self, mode=False, maxHands=2, detectionCon=0.3, trackCon=0.3):  # Lowered confidence thresholds
         self.results = None
         self.mode = mode
         self.maxHands = maxHands
@@ -18,10 +18,12 @@ class handDetector:
             static_image_mode=self.mode,
             max_num_hands=self.maxHands,
             min_detection_confidence=self.detectionCon,
-            min_tracking_confidence=self.trackCon
+            min_tracking_confidence=self.trackCon,
+            model_complexity=1  # Added model complexity parameter
         )
         
         self.mpDraw = mp.solutions.drawing_utils
+        self.mpDrawStyles = mp.solutions.drawing_styles  # Added drawing styles
         self.tipIds = [4, 8, 12, 16, 20]
 
     def findHands(self, img, draw=True):
@@ -31,20 +33,30 @@ class handDetector:
         if self.results.multi_hand_landmarks:
             for handLms in self.results.multi_hand_landmarks:
                 if draw:
-                    self.mpDraw.draw_landmarks(img, handLms,
-                                               self.mpHands.HAND_CONNECTIONS)
+                    # Enhanced visualization
+                    self.mpDraw.draw_landmarks(
+                        img, 
+                        handLms,
+                        self.mpHands.HAND_CONNECTIONS,
+                        self.mpDrawStyles.get_default_hand_landmarks_style(),
+                        self.mpDrawStyles.get_default_hand_connections_style()
+                    )
         return img
 
     def findPosition(self, img, handNo=0, draw=True):
         self.lmList = []
         if self.results.multi_hand_landmarks:
-            myHand = self.results.multi_hand_landmarks[handNo]
-            for id, lm in enumerate(myHand.landmark):
-                h, w, c = img.shape
-                cx, cy = int(lm.x * w), int(lm.y * h)
-                self.lmList.append([id, cx, cy])
-                if draw:
-                    cv2.circle(img, (cx, cy), 10, (255, 0, 255), cv2.FILLED)
+            try:
+                myHand = self.results.multi_hand_landmarks[handNo]
+                for id, lm in enumerate(myHand.landmark):
+                    h, w, c = img.shape
+                    cx, cy = int(lm.x * w), int(lm.y * h)
+                    self.lmList.append([id, cx, cy])
+                    if draw:
+                        # Increased circle size and thickness for better visibility
+                        cv2.circle(img, (cx, cy), 5, (255, 0, 255), 2)
+            except IndexError:
+                pass  # Handle case when hand is not detected
         return self.lmList
 
     def fingersUp(self):

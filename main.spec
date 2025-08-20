@@ -24,11 +24,12 @@ a = Analysis(
           [('VirtualPainter.py', '.'), 
            ('HandTrackingModule.py', '.'),
            ('KeyboardInput.py', '.'),
+           ('SizeAdjusment.py', '.'),
            ('icon/icons.png', 'icon'),
            ('icon/logo.png', 'icon'),
            ],  # Added icons.png explicitly
 
-    hiddenimports=['VirtualPainter', 'HandTrackingModule', 'KeyboardInput', 'cv2', 'numpy', 'PIL', 'tkinter'],
+    hiddenimports=['VirtualPainter', 'HandTrackingModule', 'KeyboardInput','SizeAdjustmentWindow', 'cv2', 'numpy', 'PIL', 'tkinter'],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],

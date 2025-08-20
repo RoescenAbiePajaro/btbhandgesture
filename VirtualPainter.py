@@ -11,6 +11,7 @@ import tkinter as tk
 from tkinter import messagebox
 import sys
 import atexit
+from SizeAdjustmentWindow import SizeAdjustmentWindow  # New import
 
 # Create a hidden tkinter window for the icon
 root = Tk()
@@ -128,6 +129,8 @@ redoStack = []
 keyboard_input = KeyboardInput()
 last_time = time.time()
 
+# Create size adjuster window
+size_adjuster = SizeAdjustmentWindow()  # New size adjuster instance
 
 # Function to save current state (both canvas and text)
 def save_state():
@@ -211,6 +214,17 @@ def on_close():
 
 # Add this variable before the main loop
 running = True
+
+# Add this function after other function definitions
+def handle_size_change(tool_type, size):
+    global brushSize, eraserSize
+    if tool_type == 'brush':
+        brushSize = size
+    else:  # eraser
+        eraserSize = size
+
+# Set the callback
+size_adjuster.set_size_change_callback(handle_size_change)
 
 # Main Loop
 # Main Loop
@@ -595,6 +609,7 @@ try:
         try:
             root.protocol("WM_DELETE_WINDOW", on_close)
             root.update()
+            size_adjuster.window.update()  # Process size adjuster events
         except tk.TclError:
             # Tkinter window was closed
             break
@@ -609,6 +624,7 @@ finally:
     # Release resources
     cap.release()
     cv2.destroyAllWindows()
+    size_adjuster.window.destroy()  # Clean up the size adjuster window
 
 def run_application(role=None):
     # Any role-specific initialization can go here
