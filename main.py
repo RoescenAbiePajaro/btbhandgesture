@@ -78,7 +78,7 @@ class Launcher:
         
         canvas = tk.Canvas(self.root, width=1280, height=720)
         canvas.pack()
-        bg_color = "#383232"
+        bg_color = "#000000"
         canvas.create_rectangle(0, 0, 1280, 720, fill=bg_color, outline="")
         
         try:
@@ -109,15 +109,18 @@ class Launcher:
         for widget in self.root.winfo_children():
             widget.destroy()
         
-        bg_color = "#383232"
+        bg_color = "#000000"
         canvas = tk.Canvas(self.root, width=1280, height=720, bg=bg_color)
         canvas.pack()
 
-        center_y = 360
-        logo_y = 110
-        title_y = 210
-        role_y = 290
+        # Improved vertical spacing
+        logo_y = 120
+        title_y = 250
+        role_y = 320
+        form_start_y = 380
+        button_start_y = 500
 
+        # Center logo
         try:
             logo_img = Image.open("icon/logo.png")
             logo_img = logo_img.resize((150, 150))
@@ -126,43 +129,65 @@ class Launcher:
         except FileNotFoundError:
             pass
         
+        # Title text
         canvas.create_text(1280//2, title_y, text="Beyond The Brush",
-                         font=("Arial", 36, "bold"), fill="white")
+                         font=("Arial", 36,), fill="white")
 
+        # Role selection - centered
         self.role_var = tk.StringVar(value="student")
         role_frame = tk.Frame(self.root, bg=bg_color)
         role_frame.place(relx=0.5, y=role_y, anchor='center', width=360, height=50)
         
+        # Form container for better alignment
+        form_frame = tk.Frame(self.root, bg=bg_color)
+        form_frame.place(relx=0.5, y=form_start_y, anchor='n')
+
+        # Name field
+        name_frame = tk.Frame(form_frame, bg=bg_color)
+        name_frame.pack(pady=5)
+        
+        self.name_label = tk.Label(name_frame, text="Enter your name:", font=self.small_font, 
+                                 bg=bg_color, fg="white", width=15, anchor='e')
+        self.name_label.pack(side=tk.LEFT, padx=5)
+        
+        self.name_entry = tk.Entry(name_frame, font=self.small_font, width=25)
+        self.name_entry.pack(side=tk.LEFT, padx=5)
+
+        # Code field
+        code_frame = tk.Frame(form_frame, bg=bg_color)
+        code_frame.pack(pady=5)
+        
+        self.code_label = tk.Label(code_frame, text="Access code:", font=self.small_font, 
+                                 bg=bg_color, fg="white", width=15, anchor='e')
+        self.code_label.pack(side=tk.LEFT, padx=5)
+        
+        self.code_entry = tk.Entry(code_frame, font=self.small_font, width=25, show="*")
+        self.code_entry.pack(side=tk.LEFT, padx=5)
+
+        # Button container for consistent spacing
+        button_frame = tk.Frame(self.root, bg=bg_color)
+        button_frame.place(relx=0.5, y=button_start_y, anchor='n')
+
+        # Buttons
+        login_btn = tk.Button(button_frame, text="Enter", font=self.normal_font,
+                             command=self.verify_and_launch, bg="#2575fc", fg="white",
+                             activebackground="#2575fc", activeforeground="white",
+                             width=15)
+        login_btn.pack(pady=10)
+        
+        exit_btn = tk.Button(button_frame, text="Exit", font=self.normal_font,
+                             command=self.force_close, bg="#ff00ff", fg="white",
+                             activebackground="#ff00ff", activeforeground="white",
+                             width=15)
+        exit_btn.pack(pady=10)
+
+        # Radio buttons
         tk.Radiobutton(role_frame, text="Student", variable=self.role_var, value="student", 
-                      font=("Arial", 14, "bold"), bg=bg_color, fg="white", selectcolor="#666666",
+                      font=("Arial", 14, ), bg=bg_color, fg="white", selectcolor="#2575fc",
                       activebackground=bg_color, activeforeground="white").pack(side=tk.LEFT, padx=20)
         tk.Radiobutton(role_frame, text="Educator", variable=self.role_var, value="educator", 
-                      font=("Arial", 14, "bold"), bg=bg_color, fg="white", selectcolor="#666666",
+                      font=("Arial", 14, ), bg=bg_color, fg="white", selectcolor="#2575fc",
                       activebackground=bg_color, activeforeground="white").pack(side=tk.LEFT, padx=20)
-
-        self.name_label = tk.Label(self.root, text="Enter your name:", font=self.small_font, 
-                                 bg=bg_color, fg="white")
-        self.name_label.place(x=440, y=role_y + 60, width=150, height=25)
-        
-        self.name_entry = tk.Entry(self.root, font=self.small_font, width=25)
-        self.name_entry.place(x=600, y=role_y + 60, width=200, height=25)
-
-        self.code_label = tk.Label(self.root, text="Access code:", font=self.small_font, 
-                                 bg=bg_color, fg="white")
-        self.code_label.place(x=440, y=role_y + 100, width=150, height=25)
-        
-        self.code_entry = tk.Entry(self.root, font=self.small_font, width=25, show="*")
-        self.code_entry.place(x=600, y=role_y + 100, width=200, height=25)
-
-        login_btn = tk.Button(self.root, text="Enter", font=self.normal_font,
-                             command=self.verify_and_launch, bg="#2575fc", fg="white",
-                             activebackground="#2575fc", activeforeground="white")
-        login_btn.place(x=540, y=role_y + 160, width=200, height=50)
-        
-        exit_btn = tk.Button(self.root, text="Exit", font=self.normal_font,
-                             command=self.force_close, bg="#ff00ff", fg="white",
-                             activebackground="#ff00ff", activeforeground="white")
-        exit_btn.place(x=540, y=role_y + 230, width=200, height=50)
 
         self.root.bind('<Return>', lambda event: self.verify_and_launch())
         self.role_var.trace('w', self.on_role_change)
@@ -212,8 +237,8 @@ class Launcher:
                 if student_data:
                     return True, "student", name
                 else:
-                    if messagebox.askyesno("Registration", "Student not found. Would you like to register?"):
-                        return False, "register", name
+                    if messagebox.showerror("student", "Student not found"):
+                        return False, "student", name
                     return False, None, None
                     
             elif role == "educator":
