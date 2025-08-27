@@ -198,10 +198,12 @@ class Launcher:
             self.name_label.config(text="Enter your name:")
             self.name_entry.config(state="normal")
             self.name_entry.config(bg="white")
+            self.name_entry.delete(0, tk.END)  # Clear the field
         else:
             self.name_label.config(text="Educator Name:")
-            self.name_entry.config(state="normal")
-            self.name_entry.config(bg="white")
+            self.name_entry.config(state="disabled")
+            self.name_entry.config(bg="light gray")
+            self.name_entry.delete(0, tk.END)  # Clear the field
 
     def verify_code(self, code, role, name):
         global db

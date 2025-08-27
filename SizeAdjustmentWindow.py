@@ -2,6 +2,7 @@ import tkinter as tk
 from tkinter import ttk
 import json
 import os
+import sys
 
 class SizeAdjustmentWindow:
     def __init__(self):
@@ -10,6 +11,15 @@ class SizeAdjustmentWindow:
         self.window.geometry("300x200")
         self.window.resizable(False, False)
         
+        try:
+            if sys.platform == "win32":
+                self.root.wm_iconbitmap("icon/app.ico")
+            else:
+                icon_img = tk.PhotoImage(file="icon/app.ico")
+                self.root.iconphoto(True, icon_img)
+        except Exception as e:
+            print(f"Could not set icon: {e}")
+
         # Try to load last used sizes
         self.config_file = "size_config.json"
         self.load_config()
@@ -51,13 +61,6 @@ class SizeAdjustmentWindow:
         self.eraser_label = ttk.Label(eraser_frame, text=f"Size: {self.current_eraser_size}")
         self.eraser_label.pack()
         
-        # Apply button
-        self.apply_button = ttk.Button(
-            self.window,
-            text="Apply",
-            command=self.apply_changes
-        )
-        self.apply_button.pack(pady=10)
         
         # Keep track of the last applied values
         self.last_brush_size = self.current_brush_size
