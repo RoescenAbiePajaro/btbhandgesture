@@ -1,5 +1,6 @@
-.env
+
 .dist
 .build
 venv/
 venv/Scripts
+.env

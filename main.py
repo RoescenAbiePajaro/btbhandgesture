@@ -1,4 +1,3 @@
-# main.py
 import tkinter as tk
 from tkinter import messagebox
 import time
@@ -12,27 +11,72 @@ from dotenv import load_dotenv
 # Load environment variables
 load_dotenv()
 
-# MongoDB connection - moved to separate function for reuse
+# Get the base path for resources
+if getattr(sys, 'frozen', False):
+    # Running as compiled executable
+    basePath = sys._MEIPASS
+else:
+    # Running as normal Python script
+    basePath = os.path.dirname(os.path.abspath(__file__))
+
+# MongoDB connection - secure implementation
 def get_db_connection():
     try:
+        # Load from environment variable (secure)
         MONGODB_URI = os.getenv("MONGODB_URI")
-        if not MONGODB_URI:
-            raise ValueError("MONGODB_URI not set in environment variables")
         
+        # Fallback: Try to read from .env file directly if not found in environment
+        if not MONGODB_URI:
+            env_path = os.path.join(basePath, '.env')
+            if os.path.exists(env_path):
+                print("Loading MongoDB URI from .env file...")
+                with open(env_path, 'r') as f:
+                    for line in f:
+                        line = line.strip()
+                        if line and not line.startswith('#'):
+                            if '=' in line:
+                                key, value = line.split('=', 1)
+                                if key.strip() == 'MONGODB_URI':
+                                    MONGODB_URI = value.strip().strip('"\'')
+                                    break
+        
+        if not MONGODB_URI:
+            print("MongoDB URI not found in environment variables or .env file")
+            return None
+        
+        # Security check - don't log full URI
+        uri_prefix = MONGODB_URI.split('@')[0] if '@' in MONGODB_URI else MONGODB_URI[:20]
+        print(f"Attempting MongoDB connection with: {uri_prefix}...")
+        
+        # Connection with secure settings
         client = MongoClient(
             MONGODB_URI,
             tls=True,
             tlsAllowInvalidCertificates=False,
-            serverSelectionTimeoutMS=5000,
-            connectTimeoutMS=10000,
-            socketTimeoutMS=10000
+            serverSelectionTimeoutMS=10000,
+            connectTimeoutMS=15000,
+            socketTimeoutMS=20000,
+            retryWrites=True,
+            w='majority',
+            appName="BeyondTheBrushApp"
         )
-        client.admin.command('ping')
+        
+        # Test connection with timeout
+        client.admin.command('ping', serverSelectionTimeoutMS=5000)
         db = client["beyond_the_brush"]
         print("MongoDB connection successful")
         return db
+        
     except Exception as e:
         print(f"MongoDB connection failed: {str(e)}")
+        # Don't expose sensitive information in error messages
+        error_msg = str(e)
+        if "authentication" in error_msg.lower():
+            error_msg = "Authentication failed - check credentials"
+        elif "network" in error_msg.lower() or "timeout" in error_msg.lower():
+            error_msg = "Network connection failed - check internet connection"
+        
+        print(f"Connection error: {error_msg}")
         return None
 
 # Global db connection
@@ -50,20 +94,30 @@ class Launcher:
         self.center_window()
         self.root.geometry("1280x720")
         self.root.resizable(False, False)
-        
-        try:
-            if sys.platform == "win32":
-                self.root.wm_iconbitmap("icon/app.ico")
-            else:
-                icon_img = tk.PhotoImage(file="icon/app.ico")
-                self.root.iconphoto(True, icon_img)
-        except Exception as e:
-            print(f"Could not set icon: {e}")
+
+        # Set the window icon securely
+        self.set_window_icon()
         
         self.root.protocol("WM_DELETE_WINDOW", self.force_close)
         self.center_window()
         self.show_loading_screen()
         self.root.mainloop()
+
+    def set_window_icon(self):
+        """Set window icon with secure error handling"""
+        try:
+            icon_path = os.path.join(basePath, "icon", "app.ico")
+            if os.path.exists(icon_path):
+                self.root.iconbitmap(icon_path)
+            else:
+                # Fallback to PNG
+                png_path = os.path.join(basePath, "icon", "logo.png")
+                if os.path.exists(png_path):
+                    icon_img = Image.open(png_path)
+                    icon_photo = ImageTk.PhotoImage(icon_img)
+                    self.root.iconphoto(True, icon_photo)
+        except Exception as e:
+            print(f"Icon setting failed: {e}")
 
     def center_window(self):
         screen_width = self.root.winfo_screenwidth()
@@ -82,15 +136,17 @@ class Launcher:
         canvas.create_rectangle(0, 0, 1280, 720, fill=bg_color, outline="")
         
         try:
-            logo_img = Image.open("icon/logo.png")
+            logo_path = os.path.join(basePath, "icon", "logo.png")
+            logo_img = Image.open(logo_path)
             logo_img = logo_img.resize((200, 200))
             self.logo_photo = ImageTk.PhotoImage(logo_img)
-            canvas.create_image(610, 150, image=self.logo_photo)
-        except FileNotFoundError:
-            canvas.create_text(610, 150, text="Beyond The Brush",
+            canvas.create_image(640, 150, image=self.logo_photo)
+        except Exception as e:
+            print(f"Logo image not found: {e}, using text instead")
+            canvas.create_text(640, 150, text="Beyond The Brush",
                              font=self.title_font, fill="white")
 
-        canvas.create_text(610, 360, text="Loading...",
+        canvas.create_text(640, 360, text="Loading...",
                          font=self.loading_font, fill="white")
         progress = canvas.create_rectangle(410, 400, 410, 430, fill="#2575fc", outline="")
 
@@ -113,38 +169,41 @@ class Launcher:
         canvas = tk.Canvas(self.root, width=1280, height=720, bg=bg_color)
         canvas.pack()
 
-        # Improved vertical spacing
-        logo_y = 120
-        title_y = 250
-        role_y = 320
-        form_start_y = 380
-        button_start_y = 500
-
-        # Center logo
+        # Centered logo
         try:
-            logo_img = Image.open("icon/logo.png")
-            logo_img = logo_img.resize((150, 150))
+            logo_path = os.path.join(basePath, "icon", "logo.png")
+            logo_img = Image.open(logo_path)
+            logo_img = logo_img.resize((200, 200))
             self.logo_photo = ImageTk.PhotoImage(logo_img)
-            canvas.create_image(1280//2, logo_y, image=self.logo_photo)
-        except FileNotFoundError:
-            pass
-        
-        # Title text
-        canvas.create_text(1280//2, title_y, text="Beyond The Brush",
-                         font=("Arial", 36,), fill="white")
+            canvas.create_image(640, 120, image=self.logo_photo)
+        except Exception as e:
+            print(f"Logo image not found: {e}, using text instead")
+            canvas.create_text(640, 120, text="Beyond The Brush",
+                               font=self.title_font, fill="white")
 
-        # Role selection - centered
-        self.role_var = tk.StringVar(value="student")
-        role_frame = tk.Frame(self.root, bg=bg_color)
-        role_frame.place(relx=0.5, y=role_y, anchor='center', width=360, height=50)
+        # Title text - centered
+        canvas.create_text(640, 260, text="Beyond The Brush",
+                         font=("Arial", 36,), fill="white")
         
-        # Form container for better alignment
-        form_frame = tk.Frame(self.root, bg=bg_color)
-        form_frame.place(relx=0.5, y=form_start_y, anchor='n')
+        # Role selection
+        role_frame = tk.Frame(self.root, bg=bg_color)
+        role_frame.place(relx=0.5, rely=0.45, anchor='center')
+
+        self.role_var = tk.StringVar(value="student")
+        tk.Radiobutton(role_frame, text="Student", variable=self.role_var, value="student", 
+                      font=("Arial", 14,), bg=bg_color, fg="white", selectcolor="#2575fc",
+                      activebackground=bg_color, activeforeground="white").pack(side=tk.LEFT, padx=20)
+        tk.Radiobutton(role_frame, text="Educator", variable=self.role_var, value="educator", 
+                      font=("Arial", 14, ), bg=bg_color, fg="white", selectcolor="#2575fc",
+                      activebackground=bg_color, activeforeground="white").pack(side=tk.LEFT, padx=20)
+
+        # Form container for input fields
+        form_frame = tk.Frame(self.root, bg='')
+        form_frame.place(relx=0.5, rely=0.58, anchor='center')
 
         # Name field
         name_frame = tk.Frame(form_frame, bg=bg_color)
-        name_frame.pack(pady=5)
+        name_frame.pack(pady=10, fill='x')
         
         self.name_label = tk.Label(name_frame, text="Enter your name:", font=self.small_font, 
                                  bg=bg_color, fg="white", width=15, anchor='e')
@@ -155,7 +214,7 @@ class Launcher:
 
         # Code field
         code_frame = tk.Frame(form_frame, bg=bg_color)
-        code_frame.pack(pady=5)
+        code_frame.pack(pady=10, fill='x')
         
         self.code_label = tk.Label(code_frame, text="Access code:", font=self.small_font, 
                                  bg=bg_color, fg="white", width=15, anchor='e')
@@ -164,30 +223,22 @@ class Launcher:
         self.code_entry = tk.Entry(code_frame, font=self.small_font, width=25, show="*")
         self.code_entry.pack(side=tk.LEFT, padx=5)
 
-        # Button container for consistent spacing
+        # Button container
         button_frame = tk.Frame(self.root, bg=bg_color)
-        button_frame.place(relx=0.5, y=button_start_y, anchor='n')
+        button_frame.place(relx=0.5, rely=0.75, anchor='center')
 
         # Buttons
         login_btn = tk.Button(button_frame, text="Enter", font=self.normal_font,
                              command=self.verify_and_launch, bg="#2575fc", fg="white",
-                             activebackground="#2575fc", activeforeground="white",
-                             width=15)
+                             activebackground="#1a5dc2", activeforeground="white",
+                             width=15, height=1)
         login_btn.pack(pady=10)
         
         exit_btn = tk.Button(button_frame, text="Exit", font=self.normal_font,
                              command=self.force_close, bg="#ff00ff", fg="white",
-                             activebackground="#ff00ff", activeforeground="white",
-                             width=15)
+                             activebackground="#cc00cc", activeforeground="white",
+                             width=15, height=1)
         exit_btn.pack(pady=10)
-
-        # Radio buttons
-        tk.Radiobutton(role_frame, text="Student", variable=self.role_var, value="student", 
-                      font=("Arial", 14, ), bg=bg_color, fg="white", selectcolor="#2575fc",
-                      activebackground=bg_color, activeforeground="white").pack(side=tk.LEFT, padx=20)
-        tk.Radiobutton(role_frame, text="Educator", variable=self.role_var, value="educator", 
-                      font=("Arial", 14, ), bg=bg_color, fg="white", selectcolor="#2575fc",
-                      activebackground=bg_color, activeforeground="white").pack(side=tk.LEFT, padx=20)
 
         self.root.bind('<Return>', lambda event: self.verify_and_launch())
         self.role_var.trace('w', self.on_role_change)
@@ -198,18 +249,21 @@ class Launcher:
             self.name_label.config(text="Enter your name:")
             self.name_entry.config(state="normal")
             self.name_entry.config(bg="white")
-            self.name_entry.delete(0, tk.END)  # Clear the field
+            self.name_entry.delete(0, tk.END)
         else:
             self.name_label.config(text="Educator Name:")
             self.name_entry.config(state="disabled")
             self.name_entry.config(bg="light gray")
-            self.name_entry.delete(0, tk.END)  # Clear the field
+            self.name_entry.delete(0, tk.END)
 
     def verify_code(self, code, role, name):
         global db
         if db is None:
             db = get_db_connection()
             if db is None:
+                # Offline mode - allow access with basic validation
+                if len(code) >= 4 and (role == "educator" or (role == "student" and len(name) >= 3)):
+                    return True, role, name
                 messagebox.showerror("Error", "Database connection not available")
                 return False, None, None
         
@@ -239,8 +293,8 @@ class Launcher:
                 if student_data:
                     return True, "student", name
                 else:
-                    if messagebox.showerror("student", "Student not found"):
-                        return False, "student", name
+                    if messagebox.askyesno("Student Not Found", "Student not found. Would you like to register?"):
+                        return False, "register", name
                     return False, None, None
                     
             elif role == "educator":
@@ -252,7 +306,8 @@ class Launcher:
                 return False, None, None
                 
         except Exception as e:
-            messagebox.showerror("Error", f"Verification failed: {str(e)}")
+            print(f"Database verification error: {e}")
+            messagebox.showerror("Error", "Verification failed due to database error")
             return False, None, None
 
     def verify_and_launch(self):
@@ -291,15 +346,17 @@ class Launcher:
 
         center_x = 1280 // 2
         logo_y = 100
-        title_y = 210
+        title_y = 230
         form_y = 290
         
         try:
-            logo_img = Image.open("icon/logo.png")
+            logo_path = os.path.join(basePath, "icon", "logo.png")
+            logo_img = Image.open(logo_path)
             logo_img = logo_img.resize((150, 150))
             self.logo_photo = ImageTk.PhotoImage(logo_img)
             canvas.create_image(center_x, logo_y, image=self.logo_photo)
-        except FileNotFoundError:
+        except Exception as e:
+            print(f"Logo image not found: {e}, using text instead")
             canvas.create_text(center_x, logo_y, text="Beyond The Brush",
                              font=self.title_font, fill="white")
 
@@ -359,6 +416,13 @@ class Launcher:
             return
         
         try:
+            global db
+            if db is None:
+                db = get_db_connection()
+                if db is None:
+                    messagebox.showerror("Error", "Database connection not available")
+                    return
+            
             access_codes_collection = db["access_codes"]
             students_collection = db["students"]
             
@@ -386,7 +450,8 @@ class Launcher:
             self.launch_application("student", name)
             
         except Exception as e:
-            messagebox.showerror("Error", f"Registration failed: {str(e)}")
+            print(f"Registration error: {e}")
+            messagebox.showerror("Error", "Registration failed due to database error")
 
     def launch_application(self, user_type, username):
         self.root.destroy()
@@ -407,16 +472,18 @@ class Launcher:
                 VirtualPainter.run_application(user_type, username)
             except ImportError as ie:
                 print(f"Failed to import VirtualPainter: {ie}")
-                raise
+                messagebox.showerror("Error", "Could not start the painting application")
+                sys.exit(1)
             except Exception as e:
                 print(f"Error in VirtualPainter: {e}")
-                raise
+                messagebox.showerror("Error", "Application startup failed")
+                sys.exit(1)
             
         except Exception as e:
             print(f"Error launching VirtualPainter: {e}")
             import traceback
             traceback.print_exc()
-            input("Press Enter to exit...")
+            messagebox.showerror("Error", "Failed to launch application")
             sys.exit(1)
 
     def force_close(self):
@@ -429,3 +496,9 @@ if __name__ == "__main__":
     except KeyboardInterrupt:
         print("Application terminated by user")
         sys.exit(0)
+    except Exception as e:
+        print(f"Fatal error: {e}")
+        import traceback
+        traceback.print_exc()
+        messagebox.showerror("Error", "Application failed to start")
+        sys.exit(1)

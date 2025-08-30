@@ -61,7 +61,7 @@ if getattr(sys, 'frozen', False):
 else:
     # Running as normal Python script
     basePath = os.path.dirname(os.path.abspath(__file__))
-
+#####################################################################
 # Load header images
 folderPath = os.path.join(basePath, 'header')
 if os.path.exists(folderPath) and os.path.isdir(folderPath):
@@ -99,6 +99,7 @@ if os.path.exists(folderPath) and os.path.isdir(folderPath):
     except Exception as e:
         print(f"Error loading guide images: {e}")
 
+###################################################################################################
 # Swipe detection variables
 swipe_threshold = 50  # Minimum horizontal movement to consider a swipe
 swipe_start_x = None  # To track where swipe started
@@ -616,7 +617,7 @@ try:
 
         # Check if window exists
         if cv2.getWindowProperty("Beyond The Brush", cv2.WND_PROP_VISIBLE) < 1:
-            on_close()
+            os._exit(0)
             break
 except KeyboardInterrupt:
     print("Program terminated by user")
