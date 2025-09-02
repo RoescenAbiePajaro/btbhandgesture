@@ -16,13 +16,12 @@ guide_files = [(os.path.join('guide', f), 'guide') for f in os.listdir('guide')]
 # Make sure icon files are properly included
 icon_files = [(os.path.join('icon', f), 'icon') for f in os.listdir('icon')] if os.path.exists('icon') else []
 
-env_files = [('.env', '.')] if os.path.exists('.env') else []
 
 a = Analysis(
     ['main.py'],
     pathex=[],
     binaries=[],
-    datas=mediapipe_datas + header_files + guide_files + icon_files + env_files +
+    datas=mediapipe_datas + header_files + guide_files + icon_files +
           [('VirtualPainter.py', '.'), 
            ('HandTrackingModule.py', '.'),
            ('KeyboardInput.py', '.'),
@@ -32,7 +31,7 @@ a = Analysis(
            ('size_config.json', '.'), 
            ],  # Added icons.png explicitly
 
-    hiddenimports=['VirtualPainter', 'HandTrackingModule', 'KeyboardInput','SizeAdjustmentWindow', 'cv2', 'numpy', 'PIL', 'tkinter', 'dotenv'],
+    hiddenimports=['VirtualPainter', 'HandTrackingModule', 'KeyboardInput','SizeAdjustmentWindow', 'cv2', 'numpy', 'PIL', 'tkinter'],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],

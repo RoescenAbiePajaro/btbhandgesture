@@ -1,3 +1,5 @@
+# SizeAdjustmentWindow
+
 import tkinter as tk
 from tkinter import ttk
 import json
@@ -7,9 +9,12 @@ import sys
 class SizeAdjustmentWindow:
     def __init__(self):
         self.window = tk.Tk()
-        self.window.title("Size Adjustment")
-        self.window.geometry("300x200")
+        self.window.title("Control Panel")
+        self.window.geometry("300x250")
         self.window.resizable(False, False)
+        
+        # Control mode variable
+        self.control_mode = tk.StringVar(value="hand")  # 'hand' or 'mouse'
         
         try:
             if sys.platform == "win32":
@@ -20,9 +25,31 @@ class SizeAdjustmentWindow:
         except Exception as e:
             print(f"Could not set icon: {e}")
 
-        # Try to load last used sizes
+        # Try to load last used sizes and settings
         self.config_file = "size_config.json"
         self.load_config()
+        
+        # Control mode frame
+        control_frame = ttk.LabelFrame(self.window, text="Control Mode", padding="5")
+        control_frame.pack(fill="x", padx=5, pady=5)
+        
+        # Control mode radio buttons
+        ttk.Radiobutton(
+            control_frame, 
+            text="Hand Gesture Control", 
+            variable=self.control_mode, 
+            value="hand"
+        ).pack(anchor="w", padx=5, pady=2)
+        
+        ttk.Radiobutton(
+            control_frame, 
+            text="Mouse Control", 
+            variable=self.control_mode, 
+            value="mouse"
+        ).pack(anchor="w", padx=5, pady=2)
+        
+        # Bind control mode change
+        self.control_mode.trace("w", self.on_control_mode_change)
         
         # Create frames for brush and eraser controls
         brush_frame = ttk.LabelFrame(self.window, text="Brush Size", padding="5")
@@ -68,6 +95,7 @@ class SizeAdjustmentWindow:
         
         # Initialize callback
         self.on_size_change_callback = None
+        self.control_mode_callback = None
         
         # Make window stay on top
         self.window.attributes('-topmost', True)
@@ -80,19 +108,21 @@ class SizeAdjustmentWindow:
             if os.path.exists(self.config_file):
                 with open(self.config_file, 'r') as f:
                     config = json.load(f)
-                    self.current_brush_size = config.get('brush_size', 10)
+                    self.current_brush_size = config.get('brush_size', 100)
                     self.current_eraser_size = config.get('eraser_size', 100)
+                    self.control_mode.set(config.get('control_mode', 'hand'))
             else:
-                self.current_brush_size = 10
+                self.current_brush_size = 100
                 self.current_eraser_size = 100
         except:
-            self.current_brush_size = 10
+            self.current_brush_size = 100
             self.current_eraser_size = 100
             
     def save_config(self):
         config = {
             'brush_size': self.current_brush_size,
-            'eraser_size': self.current_eraser_size
+            'eraser_size': self.current_eraser_size,
+            'control_mode': self.control_mode.get()
         }
         try:
             with open(self.config_file, 'w') as f:
@@ -121,6 +151,14 @@ class SizeAdjustmentWindow:
     
     def set_size_change_callback(self, callback):
         self.on_size_change_callback = callback
+        
+    def set_control_mode_callback(self, callback):
+        self.control_mode_callback = callback
+        
+    def on_control_mode_change(self, *args):
+        if hasattr(self, 'control_mode_callback') and self.control_mode_callback:
+            self.control_mode_callback(self.control_mode.get())
+        self.save_config()
     
     def on_closing(self):
         # Restore last applied values before closing
