@@ -449,8 +449,12 @@ try:
                 if swipe_start_x is None:
                     swipe_start_x = x1
                     swipe_active = True
-                else:
+
+                # Calculate swipe distance
+                if swipe_start_x is not None:
                     delta_x = x1 - swipe_start_x
+                    
+                    # Check if swipe threshold is crossed
                     if abs(delta_x) > swipe_threshold and swipe_active and guideList:
                         if delta_x > 0:
                             # Swipe right - previous guide
@@ -462,10 +466,38 @@ try:
                         if 0 <= current_guide_index < len(guideList):
                             current_guide = guideList[current_guide_index]
                             show_transient_notification(f"Guide {current_guide_index + 1}/{len(guideList)}")
+                        swipe_start_x = x1  # Reset swipe start position after successful swipe
                         swipe_active = False  # avoid rapid multiple swipes
 
-                # Visual feedback
-                cv2.circle(img, (x1, y1), 15, (0, 255, 0), cv2.FILLED)
+                # Enhanced visual feedback for guide cursor
+                cursor_radius = 20
+                # Outer circle (glow effect)
+                cv2.circle(img, (x1, y1), cursor_radius + 5, (0, 255, 0, 50), 2)
+                # Inner circle (solid fill)
+                cv2.circle(img, (x1, y1), cursor_radius, (0, 255, 0), cv2.FILLED)
+                # Center point
+                cv2.circle(img, (x1, y1), 3, (0, 0, 0), cv2.FILLED)
+                
+                # Show current guide number
+                guide_text = f"Guide: {current_guide_index + 1}/{len(guideList)}"
+                text_size = cv2.getTextSize(guide_text, cv2.FONT_HERSHEY_SIMPLEX, 0.7, 2)[0]
+                text_x = max(10, min(x1 - text_size[0] // 2, 1280 - text_size[0] - 10))
+                text_y = max(30, y1 - cursor_radius - 10)
+                
+                # Text background
+                cv2.rectangle(img, 
+                            (text_x - 5, text_y - 25), 
+                            (text_x + text_size[0] + 5, text_y + 5), 
+                            (0, 0, 0), -1)
+                # Text
+                cv2.putText(img, guide_text, (text_x, text_y), 
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+                
+                # Show swipe direction hint with simple text
+                if swipe_start_x is not None and abs(delta_x) > 10:
+                    direction = "" if delta_x > 0 else ""
+                    cv2.putText(img, direction, (x1 + 30, y1 - 10), 
+                               cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2, cv2.LINE_AA)
 
             # DRAWING MODE - One index finger, guide hidden, keyboard not active
             elif fingers[1] and not fingers[2] and not show_guide and not keyboard_input.active:
@@ -493,8 +525,11 @@ try:
                 points = interpolate_points(xp, yp, x1, y1)
                 for point in points:
                     if drawColor == (0, 0, 0):  # eraser
-                        cv2.line(img, (xp, yp), point, drawColor, eraserSize)
-                        cv2.line(imgCanvas, (xp, yp), point, drawColor, eraserSize)
+                        half_size = eraserSize // 2
+                        top_left = (point[0] - half_size, point[1] - half_size)
+                        bottom_right = (point[0] + half_size, point[1] + half_size)
+                        cv2.rectangle(img, top_left, bottom_right, drawColor, -1)
+                        cv2.rectangle(imgCanvas, top_left, bottom_right, drawColor, -1)
                     else:
                         cv2.line(img, (xp, yp), point, drawColor, brushSize)
                         cv2.line(imgCanvas, (xp, yp), point, drawColor, brushSize)
