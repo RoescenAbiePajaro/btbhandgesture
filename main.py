@@ -7,6 +7,9 @@ from PIL import Image, ImageTk
 from pymongo import MongoClient
 import os
 from dotenv import load_dotenv
+import subprocess
+from SizeAdjustmentWindow import SizeAdjustmentWindow
+from VirtualPainter import run_application
 
 # Load environment variables
 load_dotenv()
@@ -38,7 +41,40 @@ class Launcher:
         self.root.protocol("WM_DELETE_WINDOW", self.force_close)
         self.center_window()
         self.show_loading_screen()
+        
+        # Show size adjustment window first
+        self.show_size_adjustment()
+        
         self.root.mainloop()
+    
+    def show_size_adjustment(self):
+        """Show the size adjustment window first"""
+        def on_size_adjustment_close():
+            # This will be called when the size adjustment window is closed
+            self.size_window.window.destroy()
+            self.launch_virtual_painter()
+        
+        # Create and show size adjustment window
+        self.size_window = SizeAdjustmentWindow()
+        # Set up callback for when the window is closed
+        self.size_window.window.protocol("WM_DELETE_WINDOW", on_size_adjustment_close)
+        # Set focus to the size adjustment window
+        self.size_window.window.focus_force()
+        # Wait for the window to be closed
+        self.root.wait_window(self.size_window.window)
+    
+    def launch_virtual_painter(self):
+        """Launch VirtualPainter after size adjustment is done"""
+        try:
+            # Hide the launcher window
+            self.root.withdraw()
+            # Launch VirtualPainter in the same process
+            from VirtualPainter import run_application
+            run_application(self.root)  # Pass the root window to VirtualPainter
+        except Exception as e:
+            print(f"Error launching VirtualPainter: {e}")
+            # If there's an error, show the launcher window again
+            self.root.deiconify()
 
     def set_window_icon(self):
         """Set window icon with secure error handling"""

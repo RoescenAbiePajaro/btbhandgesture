@@ -17,10 +17,10 @@ class SizeAdjustmentWindow:
         
         try:
             if sys.platform == "win32":
-                self.root.wm_iconbitmap("icon/app.ico")
+                self.window.wm_iconbitmap("icon/app.ico")
             else:
                 icon_img = tk.PhotoImage(file="icon/app.ico")
-                self.root.iconphoto(True, icon_img)
+                self.window.iconphoto(True, icon_img)
         except Exception as e:
             print(f"Could not set icon: {e}")
 
@@ -37,11 +37,11 @@ class SizeAdjustmentWindow:
         eraser_frame.pack(fill="x", padx=5, pady=5)
         
         # Brush size controls
-        self.brush_size = tk.IntVar(value=self.current_brush_size)
+        self.brush_size = tk.IntVar(value=min(max(1, self.current_brush_size), 200))
         self.brush_slider = ttk.Scale(
             brush_frame,
             from_=1,
-            to=50,
+            to=200,
             orient="horizontal",
             variable=self.brush_size,
             command=self.update_brush_size
@@ -52,7 +52,7 @@ class SizeAdjustmentWindow:
         self.brush_label.pack()
         
         # Eraser size controls
-        self.eraser_size = tk.IntVar(value=self.current_eraser_size)
+        self.eraser_size = tk.IntVar(value=min(max(10, self.current_eraser_size), 200))
         self.eraser_slider = ttk.Scale(
             eraser_frame,
             from_=10,
@@ -105,16 +105,24 @@ class SizeAdjustmentWindow:
             print(f"Error saving config: {e}")
     
     def update_brush_size(self, value):
-        size = int(float(value))
-        self.brush_label.config(text=f"Size: {size}")
-        if self.on_size_change_callback:
-            self.on_size_change_callback('brush', size)
+        try:
+            size = int(float(value))
+            self.brush_label.config(text=f"Size: {size}")
+            self.current_brush_size = size
+            if self.on_size_change_callback:
+                self.on_size_change_callback('brush', size)
+        except (ValueError, TypeError):
+            pass
             
     def update_eraser_size(self, value):
-        size = int(float(value))
-        self.eraser_label.config(text=f"Size: {size}")
-        if self.on_size_change_callback:
-            self.on_size_change_callback('eraser', size)
+        try:
+            size = int(float(value))
+            self.eraser_label.config(text=f"Size: {size}")
+            self.current_eraser_size = size
+            if self.on_size_change_callback:
+                self.on_size_change_callback('eraser', size)
+        except (ValueError, TypeError):
+            pass
     
     def apply_changes(self):
         self.current_brush_size = self.brush_size.get()
