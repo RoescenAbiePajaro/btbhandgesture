@@ -12,31 +12,7 @@ from tkinter import messagebox
 import sys
 import atexit
 from SizeAdjustmentWindow import SizeAdjustmentWindow  # New import
-
-# Create a hidden tkinter window for the icon
-root = Tk()
-root.withdraw()  # Hide the main tkinter window
-
-# Set the taskbar icon
-try:
-    # For Windows, use the .ico file directly with wm_iconbitmap
-    if sys.platform == "win32":
-        root.wm_iconbitmap("icon/app.ico")
-    else:
-        # For other platforms, use a PNG with PhotoImage
-        icon_img = PhotoImage(file="icon/app.ico")
-        root.iconphoto(True, icon_img)
-except Exception as e:
-    print(f"Could not set icon: {e}")
-    # Fallback: try to load icon using PIL which has better format support
-    try:
-        from PIL import Image, ImageTk
-        icon = Image.open("icon/app.ico")
-        icon_photo = ImageTk.PhotoImage(icon)
-        root.iconphoto(True, icon_photo)
-    except Exception as e2:
-        print(f"Fallback icon loading also failed: {e2}")
-
+     
 # Variables
 brushSize = 10
 eraserSize = 100
@@ -210,7 +186,6 @@ def on_close():
     running = False
     cap.release()
     cv2.destroyAllWindows()
-    root.destroy()
     sys.exit()
 
 # Add this variable before the main loop
@@ -643,8 +618,6 @@ try:
 
         # Process Tkinter events and handle window close
         try:
-            root.protocol("WM_DELETE_WINDOW", on_close)
-            root.update()
             size_adjuster.window.update()  # Process size adjuster events
         except tk.TclError:
             # Tkinter window was closed
@@ -663,15 +636,12 @@ finally:
     size_adjuster.window.destroy()  # Clean up the size adjuster window
 
 def run_application(role=None):
-    # Any role-specific initialization can go here
+    
     try:
-        # Main application code is already in the global scope
-        # This function just provides an entry point
         pass
     except Exception as e:
         print(f"Error running application: {e}")
 
-# Only run the main code when executed directly
 if __name__ == "__main__":
     role = None
     if len(sys.argv) > 1:

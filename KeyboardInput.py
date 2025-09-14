@@ -35,6 +35,8 @@ class KeyboardInput:
         self.last_key = None
         self.smooth_text = []  # Buffer for smooth text rendering
         self.text_fade_in = 1.0  # Text fade-in animation
+        self.animation_speed = 0.1  # Faster fade-in animation (reduced from 0.2)
+        self.char_delay = 0.01  # Shorter delay between character animations (reduced from 0.03)
 
     def toggle_keyboard_mode(self):
         self.active = not self.active
@@ -105,18 +107,28 @@ class KeyboardInput:
         elif 32 <= key <= 126:  # Printable ASCII characters
             if selected_index >= 0:
                 self.text_objects[selected_index]['text'] += chr(key)
-                # Add to smooth text buffer
+                # Add to smooth text buffer with staggered timing
+                char_time = len(self.smooth_text) * self.char_delay
                 self.smooth_text.append({
                     'char': chr(key),
                     'alpha': 0,
+                    'scale': 0.8,  # Start slightly smaller
+                    'y_offset': 10,  # Start slightly below
+                    'time': char_time,
+                    'elapsed': 0,
                     'target_pos': len(self.text_objects[selected_index]['text']) - 1
                 })
             else:
                 self.text += chr(key)
-                # Add to smooth text buffer
+                # Add to smooth text buffer with staggered timing
+                char_time = len(self.smooth_text) * self.char_delay
                 self.smooth_text.append({
                     'char': chr(key),
                     'alpha': 0,
+                    'scale': 0.8,  # Start slightly smaller
+                    'y_offset': 10,  # Start slightly below
+                    'time': char_time,
+                    'elapsed': 0,
                     'target_pos': len(self.text) - 1
                 })
             return True
@@ -145,8 +157,6 @@ class KeyboardInput:
             'thickness': self.default_thickness,
             'selected': False
         })
-
-
 
     def delete_selected(self):
         """Delete the currently selected text object"""
@@ -193,9 +203,24 @@ class KeyboardInput:
             self.cursor_visible = not self.cursor_visible
 
         # Update smooth text animations
+        current_time = time.time()
         for char_data in self.smooth_text[:]:
-            char_data['alpha'] = min(1.0, char_data['alpha'] + dt * 5)
-            if char_data['alpha'] >= 1.0:
+            # Update elapsed time
+            char_data['elapsed'] += dt
+            
+            # Calculate animation progress (0.0 to 1.0)
+            progress = min(1.0, char_data['elapsed'] / self.animation_speed)
+            
+            # Use linear easing for faster response
+            progress = progress  # Linear easing (faster than cubic)
+            
+            # Update animation properties
+            char_data['alpha'] = progress
+            char_data['scale'] = 0.9 + (0.1 * progress)  # Start larger (0.9) and scale less (to 1.0)
+            char_data['y_offset'] = 5 * (1 - progress)  # Move up from 5px to 0 (reduced from 10px)
+            
+            # Remove completed animations
+            if progress >= 1.0:
                 self.smooth_text.remove(char_data)
 
     def draw(self, img):
@@ -248,18 +273,29 @@ class KeyboardInput:
             for char_data in self.smooth_text:
                 pos = char_data['target_pos']
                 alpha = char_data['alpha']
-                color = tuple(int(c * alpha) for c in self.default_color)
+                scale = char_data['scale']
+                y_offset = int(char_data['y_offset'])
                 
+                # Calculate position with offset
                 text_before = base_text[:pos]
                 text_size = cv2.getTextSize(text_before, self.default_font, 
-                                          self.default_scale, self.default_thickness)[0]
+                                         self.default_scale, self.default_thickness)[0]
                 
-                char_pos = (self.current_input_position[0] + text_size[0],
-                           self.current_input_position[1])
+                base_x = self.current_input_position[0] + text_size[0]
+                base_y = self.current_input_position[1]
                 
-                # Draw animated character
-                cv2.putText(img, char_data['char'], char_pos, self.default_font,
-                           self.default_scale, color, self.default_thickness)
+                # Apply animation offsets
+                char_pos = (base_x, base_y + y_offset)
+                
+                # Calculate color with alpha
+                color = tuple(int(c * alpha) for c in self.default_color)
+                
+                # Draw character with current scale and alpha
+                font_scale = self.default_scale * scale
+                cv2.putText(img, char_data['char'], char_pos, 
+                          self.default_font, font_scale, 
+                          color, self.default_thickness, 
+                          cv2.LINE_AA)  # Anti-aliased text
 
             # Draw main text
             cv2.putText(img, self.text, self.current_input_position,
