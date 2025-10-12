@@ -1,4 +1,4 @@
-#VirtualPainter.py
+ #VirtualPainter.py
 import cv2
 import numpy as np
 import os
@@ -186,6 +186,10 @@ def on_close():
     running = False
     cap.release()
     cv2.destroyAllWindows()
+    try:
+        size_adjuster.window.destroy()
+    except:
+        pass
     sys.exit()
 
 # Add this variable before the main loop
@@ -203,8 +207,12 @@ def handle_size_change(tool_type, size):
 size_adjuster.set_size_change_callback(handle_size_change)
 
 # Main Loop
-# Main Loop
 try:
+    # Create window first and set close callback
+    cv2.namedWindow("Beyond The Brush", cv2.WINDOW_GUI_NORMAL)
+    cv2.resizeWindow("Beyond The Brush", 1280, 720)
+    cv2.setWindowProperty("Beyond The Brush", cv2.WND_PROP_TOPMOST, 1)
+    
     while running:
         start_time = time.time()
 
@@ -605,10 +613,6 @@ try:
                         cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
 
         # 12. Display the image
-        cv2.namedWindow("Beyond The Brush", cv2.WINDOW_GUI_NORMAL)  # Create window with normal GUI (not resizable)
-        cv2.resizeWindow("Beyond The Brush", 1280, 720)  # Set window size to 1280x720
-        cv2.setWindowProperty("Beyond The Brush", cv2.WND_PROP_TOPMOST, 1)  # Set window to always be on top
-        cv2.setWindowProperty("Beyond The Brush", cv2.WND_PROP_AUTOSIZE, cv2.WINDOW_NORMAL)  # Set the close callback for OpenCV window
         cv2.imshow("Beyond The Brush", img)
 
         # Maintain 60 FPS
@@ -623,17 +627,21 @@ try:
             # Tkinter window was closed
             break
 
-        # Check if window exists
+        # Check if window should close
         if cv2.getWindowProperty("Beyond The Brush", cv2.WND_PROP_VISIBLE) < 1:
-            os._exit(0)
+            on_close()
             break
+            
+        # Check for ESC key press to exit
+        if cv2.waitKey(1) & 0xFF == 27:  # 27 is the ESC key
+            on_close()
+            break
+            
 except KeyboardInterrupt:
     print("Program terminated by user")
 finally:
     # Release resources
-    cap.release()
-    cv2.destroyAllWindows()
-    size_adjuster.window.destroy()  # Clean up the size adjuster window
+    on_close()
 
 def run_application(role=None):
     

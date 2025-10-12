@@ -3,10 +3,15 @@ from tkinter import messagebox
 import time
 import sys
 import threading
+import socket
+import urllib.request
 from PIL import Image, ImageTk
 from pymongo import MongoClient
 import os
 from dotenv import load_dotenv
+
+# Import click tracker
+from track_click import tracker
 
 # Load environment variables
 load_dotenv()
@@ -126,15 +131,15 @@ class Launcher:
         button_frame = tk.Frame(self.root, bg=bg_color)
         button_frame.place(relx=0.5, rely=0.65, anchor='center')
 
-        # Buttons
+        # Buttons with click tracking
         enter_btn = tk.Button(button_frame, text="Enter", font=self.normal_font,
-                             command=self.launch_application, bg="#2575fc", fg="white",
+                             command=self.on_enter_click, bg="#2575fc", fg="white",
                              activebackground="#1a5dc2", activeforeground="white",
                              width=15, height=1)
         enter_btn.pack(pady=10)
         
         exit_btn = tk.Button(button_frame, text="Exit", font=self.normal_font,
-                             command=self.force_close, bg="#ff00ff", fg="white",
+                             command=self.on_exit_click, bg="#ff00ff", fg="white",
                              activebackground="#cc00cc", activeforeground="white",
                              width=15, height=1)
         exit_btn.pack(pady=10)
@@ -145,11 +150,53 @@ class Launcher:
                                  font=self.small_font, fg="gray", bg=bg_color, justify="center")
         warning_label.pack(pady=5)
 
-        self.root.bind('<Return>', lambda event: self.launch_application())
+        self.root.bind('<Return>', lambda event: self.on_enter_click())
+
+    def check_internet_connection(self, host="8.8.8.8", port=53, timeout=3):
+        """Check internet connection by trying to connect to Google's DNS server"""
+        try:
+            socket.setdefaulttimeout(timeout)
+            socket.socket(socket.AF_INET, socket.SOCK_STREAM).connect((host, port))
+            return True
+        except (socket.gaierror, socket.timeout, socket.error):
+            return False
+
+    def on_enter_click(self):
+        """Handle Enter button click with tracking and internet check"""
+        # Track the click
+        tracker.track_click(button="btb_enter", page="beyondthebrush_app")
+        
+        # Check internet connection
+        if not self.check_internet_connection():
+            messagebox.showerror("Connection Error", 
+                              "Connection Lost, Please Try Again\n\n"
+                              "Please check your internet connection and try again.")
+            return
+        
+        # Proceed with original functionality if there's internet
+        self.launch_application()
+
+    def on_exit_click(self):
+        """Handle Exit button click with tracking"""
+        # Track the click
+        tracker.track_click(button="btb_exit", page="beyondthebrush_app")
+        
+        # Proceed with original functionality
+        self.force_close()
 
     def launch_application(self):
-        self.root.destroy()
-        self.launch_VirtualPainter_program()
+        try:
+            # Double check internet connection right before launching
+            if not self.check_internet_connection():
+                messagebox.showerror("Connection Error",
+                                  "Connection Lost, Please Try Again\n\n"
+                                  "Please check your internet connection and try again.")
+                return
+                
+            self.root.destroy()
+            self.launch_VirtualPainter_program()
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to launch application: {str(e)}")
 
     def launch_VirtualPainter_program(self):
         try:
