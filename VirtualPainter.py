@@ -12,6 +12,7 @@ from tkinter import messagebox
 import sys
 import atexit
 from SizeAdjustmentWindow import SizeAdjustmentWindow  # New import
+from track_click import tracker  # Import click tracker
      
 # Variables
 brushSize = 10
@@ -164,6 +165,9 @@ def save_canvas():
     cv2.imwrite(save_path, saved_img)
     print(f"Canvas Saved at {save_path}")
     
+    # Track the canvas save action
+    tracker.track_click(button="save_canvas", page="virtual_painter")
+    
     # Draw black outline (thicker)
     cv2.putText(img, f"Saved to: {save_path}", (50, 150),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 0), 4)
@@ -192,8 +196,10 @@ def on_close():
         pass
     sys.exit()
 
-# Add this variable before the main loop
+# Add these variables before the main loop
 running = True
+last_save_time = 0
+SAVE_COOLDOWN = 1.0  # 1 second cooldown between saves
 
 # Add this function after other function definitions
 def handle_size_change(tool_type, size):
@@ -254,10 +260,13 @@ try:
                 # Detecting selection based on X coordinate
                 if y1 < 125:  # Ensure the selection is within the header area
                     if 0 < x1 < 128:  # Save
-                        if len(overlayList) > 1:
-                            header = overlayList[1]
-                        save_canvas()
-                        show_guide = False
+                        current_time = time.time()
+                        if current_time - last_save_time > SAVE_COOLDOWN:
+                            if len(overlayList) > 1:
+                                header = overlayList[1]
+                            save_canvas()
+                            last_save_time = current_time
+                            show_guide = False
 
                     elif 128 < x1 < 256:  # Pink
                         if len(overlayList) > 2:
