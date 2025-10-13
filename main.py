@@ -18,10 +18,8 @@ load_dotenv()
 
 # Get the base path for resources
 if getattr(sys, 'frozen', False):
-    # Running as compiled executable
     basePath = sys._MEIPASS
 else:
-    # Running as normal Python script
     basePath = os.path.dirname(os.path.abspath(__file__))
 
 class Launcher:
@@ -37,22 +35,18 @@ class Launcher:
         self.root.geometry("1280x720")
         self.root.resizable(False, False)
 
-        # Set the window icon securely
         self.set_window_icon()
-        
         self.root.protocol("WM_DELETE_WINDOW", self.force_close)
         self.center_window()
         self.show_loading_screen()
         self.root.mainloop()
 
     def set_window_icon(self):
-        """Set window icon with secure error handling"""
         try:
             icon_path = os.path.join(basePath, "icon", "app.ico")
             if os.path.exists(icon_path):
                 self.root.iconbitmap(icon_path)
             else:
-                # Fallback to PNG
                 png_path = os.path.join(basePath, "icon", "logo.png")
                 if os.path.exists(png_path):
                     icon_img = Image.open(png_path)
@@ -102,6 +96,43 @@ class Launcher:
 
         self.show_entry_page()
 
+    def show_background_loading_screen(self):
+        for widget in self.root.winfo_children():
+            widget.destroy()
+        
+        canvas = tk.Canvas(self.root, width=1280, height=720)
+        canvas.pack()
+        bg_color = "#000000"
+        canvas.create_rectangle(0, 0, 1280, 720, fill=bg_color, outline="")
+        
+        try:
+            logo_path = os.path.join(basePath, "icon", "logo.png")
+            logo_img = Image.open(logo_path)
+            logo_img = logo_img.resize((200, 200))
+            self.logo_photo = ImageTk.PhotoImage(logo_img)
+            canvas.create_image(640, 150, image=self.logo_photo)
+        except Exception as e:
+            print(f"Logo image not found: {e}, using text instead")
+            canvas.create_text(640, 150, text="Beyond The Brush",
+                             font=self.title_font, fill="white")
+
+        self.loading_text = canvas.create_text(640, 360, text="Loading VirtualPainter...",
+                                            font=self.loading_font, fill="white")
+        self.canvas = canvas
+        self.animate_dots()
+
+    def animate_dots(self):
+        try:
+            current_text = self.canvas.itemcget(self.loading_text, "text")
+            if current_text.endswith("..."):
+                new_text = "Loading VirtualPainter"
+            else:
+                new_text = current_text + "."
+            self.canvas.itemconfig(self.loading_text, text=new_text)
+            self.root.after(500, self.animate_dots)
+        except tk.TclError:
+            return
+
     def show_entry_page(self):
         self.center_window()
         for widget in self.root.winfo_children():
@@ -111,7 +142,6 @@ class Launcher:
         canvas = tk.Canvas(self.root, width=1280, height=720, bg=bg_color)
         canvas.pack()
 
-        # Centered logo
         try:
             logo_path = os.path.join(basePath, "icon", "logo.png")
             logo_img = Image.open(logo_path)
@@ -123,15 +153,12 @@ class Launcher:
             canvas.create_text(640, text="Beyond The Brush",
                                font=self.title_font, fill="white")
 
-        # Title text - centered
         canvas.create_text(640, 325, text="Beyond The Brush",
                          font=("Arial", 36,), fill="white")
         
-        # Button container
         button_frame = tk.Frame(self.root, bg=bg_color)
         button_frame.place(relx=0.5, rely=0.65, anchor='center')
 
-        # Buttons with click tracking
         enter_btn = tk.Button(button_frame, text="Enter", font=self.normal_font,
                              command=self.on_enter_click, bg="#2575fc", fg="white",
                              activebackground="#1a5dc2", activeforeground="white",
@@ -144,7 +171,6 @@ class Launcher:
                              width=15, height=1)
         exit_btn.pack(pady=10)
 
-        # ⚠ Warning label below Exit button (gray text)
         warning_label = tk.Label(button_frame, 
                                  text="⚠ When you click Enter, please wait\nand do not turn off your computer.",
                                  font=self.small_font, fg="gray", bg=bg_color, justify="center")
@@ -153,7 +179,6 @@ class Launcher:
         self.root.bind('<Return>', lambda event: self.on_enter_click())
 
     def check_internet_connection(self, host="8.8.8.8", port=53, timeout=3):
-        """Check internet connection by trying to connect to Google's DNS server"""
         try:
             socket.setdefaulttimeout(timeout)
             socket.socket(socket.AF_INET, socket.SOCK_STREAM).connect((host, port))
@@ -162,70 +187,69 @@ class Launcher:
             return False
 
     def on_enter_click(self):
-        """Handle Enter button click with tracking and internet check"""
-        # Track the click
         tracker.track_click(button="btb_enter", page="beyondthebrush_app")
-        
-        # Check internet connection
         if not self.check_internet_connection():
             messagebox.showerror("Connection Error", 
                               "Connection Lost, Please Try Again\n\n"
                               "Please check your internet connection and try again.")
             return
-        
-        # Proceed with original functionality if there's internet
         self.launch_application()
 
     def on_exit_click(self):
-        """Handle Exit button click with tracking"""
-        # Track the click
         tracker.track_click(button="btb_exit", page="beyondthebrush_app")
-        
-        # Proceed with original functionality
         self.force_close()
 
     def launch_application(self):
         try:
-            # Double check internet connection right before launching
             if not self.check_internet_connection():
                 messagebox.showerror("Connection Error",
                                   "Connection Lost, Please Try Again\n\n"
                                   "Please check your internet connection and try again.")
                 return
                 
-            self.root.destroy()
-            self.launch_VirtualPainter_program()
+            self.show_background_loading_screen()
+            
+            # Create a flag to track VirtualPainter readiness
+            self.vp_ready = False
+            threading.Thread(target=self.launch_VirtualPainter_program, daemon=True).start()
+            
+            # Check periodically if VirtualPainter is ready
+            self.check_vp_ready()
+
         except Exception as e:
             messagebox.showerror("Error", f"Failed to launch application: {str(e)}")
+            self.show_entry_page()
+
+    def check_vp_ready(self):
+        """Periodically check if VirtualPainter is ready"""
+        try:
+            if self.vp_ready:
+                self.root.destroy()  # Close loading screen when VirtualPainter is ready
+            else:
+                self.root.after(100, self.check_vp_ready)  # Check again after 100ms
+        except tk.TclError:
+            return
 
     def launch_VirtualPainter_program(self):
         try:
             print("Launching VirtualPainter")
+            import VirtualPainter
             
-            try:
-                if self.root and self.root.winfo_exists():
-                    self.root.destroy()
-            except Exception as e:
-                print(f"Warning: Could not destroy root window: {e}")
+            # Run VirtualPainter (assuming it creates its own window)
+            VirtualPainter.run_application()
             
-            try:
-                import VirtualPainter
-                VirtualPainter.run_application()
-            except ImportError as ie:
-                print(f"Failed to import VirtualPainter: {ie}")
-                messagebox.showerror("Error", "Could not start the painting application")
-                sys.exit(1)
-            except Exception as e:
-                print(f"Error in VirtualPainter: {e}")
-                messagebox.showerror("Error", "Application startup failed")
-                sys.exit(1)
+            # Set flag to indicate VirtualPainter is ready
+            # If VirtualPainter has a callback or signal, use it here instead
+            self.vp_ready = True
             
+        except ImportError as ie:
+            print(f"Failed to import VirtualPainter: {ie}")
+            self.root.after(0, lambda: messagebox.showerror("Error", "Could not start the painting application"))
+            self.root.after(0, self.show_entry_page)
         except Exception as e:
-            print(f"Error launching VirtualPainter: {e}")
-            import traceback
-            traceback.print_exc()
-            messagebox.showerror("Error", "Failed to launch application")
-            sys.exit(1)
+            print(f"Error in VirtualPainter: {e}")
+            self.root.after(0, lambda: messagebox.showerror("Error", "Application startup failed"))
+            self.root.after(0, self.show_entry_page)
 
     def force_close(self):
         self.root.destroy()
