@@ -39,6 +39,8 @@ class Launcher:
         self.root.protocol("WM_DELETE_WINDOW", self.force_close)
         self.center_window()
         self.show_loading_screen()
+        self.timeout_id = None  # Store timeout ID for cancellation
+        self.process_alive = True  # Flag to keep process running
         self.root.mainloop()
 
     def set_window_icon(self):
@@ -166,7 +168,7 @@ class Launcher:
         enter_btn.pack(pady=10)
         
         exit_btn = tk.Button(button_frame, text="Exit", font=self.normal_font,
-                             command=self.on_exit_click, bg="#ff00ff", fg="white",
+                             command=self.force_close, bg="#ff00ff", fg="white",
                              activebackground="#cc00cc", activeforeground="white",
                              width=15, height=1)
         exit_btn.pack(pady=10)
@@ -193,6 +195,8 @@ class Launcher:
                               "Connection Lost, Please Try Again\n\n"
                               "Please check your internet connection and try again.")
             return
+        # Start a 30-second timeout to close the main window
+        self.timeout_id = self.root.after(30000, self.close_main_window)
         self.launch_application()
 
     def on_exit_click(self):
@@ -202,6 +206,10 @@ class Launcher:
     def launch_application(self):
         try:
             if not self.check_internet_connection():
+                # Cancel timeout if no internet
+                if self.timeout_id:
+                    self.root.after_cancel(self.timeout_id)
+                    self.timeout_id = None
                 messagebox.showerror("Connection Error",
                                   "Connection Lost, Please Try Again\n\n"
                                   "Please check your internet connection and try again.")
@@ -217,6 +225,10 @@ class Launcher:
             self.check_vp_ready()
 
         except Exception as e:
+            # Cancel timeout if launch fails
+            if self.timeout_id:
+                self.root.after_cancel(self.timeout_id)
+                self.timeout_id = None
             messagebox.showerror("Error", f"Failed to launch application: {str(e)}")
             self.show_entry_page()
 
@@ -224,7 +236,11 @@ class Launcher:
         """Periodically check if VirtualPainter is ready"""
         try:
             if self.vp_ready:
-                self.root.destroy()  # Close loading screen when VirtualPainter is ready
+                # Cancel timeout when VirtualPainter is ready
+                if self.timeout_id:
+                    self.root.after_cancel(self.timeout_id)
+                    self.timeout_id = None
+                self.root.destroy()  # Close main window when VirtualPainter is ready
             else:
                 self.root.after(100, self.check_vp_ready)  # Check again after 100ms
         except tk.TclError:
@@ -239,7 +255,6 @@ class Launcher:
             VirtualPainter.run_application()
             
             # Set flag to indicate VirtualPainter is ready
-            # If VirtualPainter has a callback or signal, use it here instead
             self.vp_ready = True
             
         except ImportError as ie:
@@ -251,13 +266,35 @@ class Launcher:
             self.root.after(0, lambda: messagebox.showerror("Error", "Application startup failed"))
             self.root.after(0, self.show_entry_page)
 
+    def close_main_window(self):
+        """Close the main window without terminating the process"""
+        if self.timeout_id:
+            self.root.after_cancel(self.timeout_id)
+            self.timeout_id = None
+        try:
+            self.root.destroy()
+        except tk.TclError:
+            pass
+        # Do not call sys.exit(0) to keep the process alive for VirtualPainter
+
     def force_close(self):
-        self.root.destroy()
-        sys.exit(0)
+        """Handle manual closure (e.g., window close button or Exit button)"""
+        if self.timeout_id:
+            self.root.after_cancel(self.timeout_id)
+            self.timeout_id = None
+        try:
+            self.root.destroy()
+        except tk.TclError:
+            pass
+        # Do not call sys.exit(0) to allow VirtualPainter to continue
+        self.process_alive = False
 
 if __name__ == "__main__":
     try:
         launcher = Launcher()
+        # Keep process alive after mainloop ends if VirtualPainter is running
+        while launcher.process_alive:
+            time.sleep(0.1)
     except KeyboardInterrupt:
         print("Application terminated by user")
         sys.exit(0)
