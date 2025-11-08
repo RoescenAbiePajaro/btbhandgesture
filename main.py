@@ -111,24 +111,28 @@ class Launcher:
         except tk.TclError:
             return
 
-    def animate_rectangle(self):
-        """Animate the rectangular loading bar"""
+    def animate_rectangle(self, start_time=None, last_width=0):
+        """Animate the rectangular loading bar over 30 seconds"""
         try:
-            # Get current coordinates of the rectangle
-            coords = self.canvas.coords(self.loading_rect)
-            if len(coords) >= 4:
-                current_width = coords[2] - coords[0]
+            if start_time is None:
+                start_time = time.time()
                 
-                # Reset if full width (840 - 440 = 400)
-                if current_width >= 400:
-                    self.canvas.coords(self.loading_rect, 440, 400, 440, 430)
-                else:
-                    # Increase width by 20 pixels each step
-                    new_width = current_width + 20
-                    self.canvas.coords(self.loading_rect, 440, 400, 440 + new_width, 430)
+            # Calculate elapsed time and progress
+            elapsed = time.time() - start_time
+            progress = min(elapsed / 30.0, 1.0)  # 30 seconds total duration
             
-            # Continue animation
-            self.root.after(100, self.animate_rectangle)
+            # Calculate target width based on progress (400 is max width)
+            target_width = int(400 * progress)
+            
+            # Only update if width has changed
+            if target_width > last_width:
+                self.canvas.coords(self.loading_rect, 440, 400, 440 + target_width, 430)
+                last_width = target_width
+            
+            # Continue animation if not complete
+            if progress < 1.0:
+                self.root.after(50, lambda: self.animate_rectangle(start_time, last_width))
+                
         except tk.TclError:
             return
 

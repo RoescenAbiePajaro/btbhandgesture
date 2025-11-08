@@ -11,6 +11,7 @@ import tkinter as tk
 from tkinter import messagebox
 import sys
 import atexit
+import threading
 from SizeAdjustmentWindow import SizeAdjustmentWindow  # New import
 from track_click import tracker  # Import click tracker
      
@@ -130,50 +131,71 @@ def show_transient_notification(message, duration=1.0):
     notification_text = message
     notification_time = time.time() + duration
 
-# Function to save the canvas
-def save_canvas():
-    import time
-    timestamp = time.strftime("%Y%m%d_%H%M%S")
-    save_path = os.path.join(os.path.expanduser("~"), "Pictures", f"saved_painting_{timestamp}.png")
-
-    # Create a copy of the canvas to draw text on
-    saved_img = imgCanvas.copy()
-
-    # Draw all text objects onto the saved image
-    for obj in keyboard_input.text_objects:
-        cv2.putText(
-            saved_img,
-            obj['text'],
-            obj['position'],
-            obj['font'],
-            obj['scale'],
-            obj['color'],
-            obj['thickness'] + 2
-        )
-
-        # Then draw main text
-        cv2.putText(
-            saved_img,
-            obj['text'],
-            obj['position'],
-            obj['font'],
-            obj['scale'],
-            obj['color'],
-            obj['thickness']
-        )
-
-    cv2.imwrite(save_path, saved_img)
-    print(f"Canvas Saved at {save_path}")
+def btb_saved_canvas_async():
+    """Save the canvas in a separate thread to prevent freezing"""
+    global notification_text, notification_time
     
-    # Track the canvas save action
-    tracker.track_click(button="save_canvas", page="virtual_painter")
-    
-    # Draw black outline (thicker)
-    cv2.putText(img, f"Saved to: {save_path}", (50, 150),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 0), 4)
-    # Draw main white text (thinner)
-    cv2.putText(img, f"Saved to: {save_path}", (50, 150),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+    try:
+        # Create btbSavedImage folder in Downloads if it doesn't exist
+        download_folder = os.path.join(os.path.expanduser("~"), "Downloads")
+        save_folder = os.path.join(download_folder, "beyondthebrush_app_saved_canvas")
+        os.makedirs(save_folder, exist_ok=True)
+        
+        timestamp = time.strftime("%Y%m%d_%H%M%S")
+        save_path = os.path.join(save_folder, f"btb_saved_canvas_{timestamp}.png")
+
+        # Create a copy of the canvas to draw text on
+        saved_img = imgCanvas.copy()
+
+        # Draw all text objects onto the saved image
+        for obj in keyboard_input.text_objects:
+            # Draw outline (thicker)
+            cv2.putText(
+                saved_img,
+                obj['text'],
+                obj['position'],
+                obj['font'],
+                obj['scale'],
+                (0, 0, 0),  # Black outline
+                obj['thickness'] + 2
+            )
+            # Draw main text
+            cv2.putText(
+                saved_img,
+                obj['text'],
+                obj['position'],
+                obj['font'],
+                obj['scale'],
+                obj['color'],
+                obj['thickness']
+            )
+
+        # Save the image
+        cv2.imwrite(save_path, saved_img)
+        
+        # Track the canvas save action
+        tracker.track_click(button="btb_saved_canvas", page="beyondthebrush_app")
+        
+        # Create a notification message with the filename
+        filename = os.path.basename(save_path)
+        notification_msg = f"Image saved as: {filename}"
+        
+        # Set the notification to be shown in the main loop
+        notification_text = notification_msg
+        notification_time = time.time() + 3.0  # Show for 3 seconds
+        
+        print(f"Canvas saved to: {save_path}")
+        
+    except Exception as e:
+        print(f"Error saving canvas: {str(e)}")
+        notification_text = "Error saving image!"
+        notification_time = time.time() + 3.0  # Show for 3 seconds
+
+def btb_saved_canvas():
+    """Start the save process in a separate thread"""
+    save_thread = threading.Thread(target=btb_saved_canvas_async)
+    save_thread.daemon = True  # This ensures the thread will exit when the main program exits
+    save_thread.start()
 
 # Function to interpolate points
 def interpolate_points(x1, y1, x2, y2, num_points=10):
@@ -200,6 +222,8 @@ def on_close():
 running = True
 last_save_time = 0
 SAVE_COOLDOWN = 1.0  # 1 second cooldown between saves
+notification_text = ""
+notification_time = 0
 
 # Add this function after other function definitions
 def handle_size_change(tool_type, size):
@@ -264,7 +288,7 @@ try:
                         if current_time - last_save_time > SAVE_COOLDOWN:
                             if len(overlayList) > 1:
                                 header = overlayList[1]
-                            save_canvas()
+                            btb_saved_canvas()
                             last_save_time = current_time
                             show_guide = False
 
@@ -620,6 +644,18 @@ try:
                         cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
             cv2.putText(img, f"Guide {current_guide_index + 1}/{len(guideList)}", (1100, 150),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+
+        # Show notification if active
+        current_time = time.time()
+        if current_time < notification_time and notification_text:
+            # Draw notification background
+            text_size = cv2.getTextSize(notification_text, cv2.FONT_HERSHEY_SIMPLEX, 0.7, 2)[0]
+            cv2.rectangle(img, (10, 10), (20 + text_size[0], 40), (50, 50, 50), -1)
+            cv2.rectangle(img, (10, 10), (20 + text_size[0], 40), (200, 200, 200), 1)
+            
+            # Draw notification text
+            cv2.putText(img, notification_text, (20, 32), 
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
 
         # 12. Display the image
         cv2.imshow("Beyond The Brush", img)
