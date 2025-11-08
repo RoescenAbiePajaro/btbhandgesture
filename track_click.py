@@ -2,7 +2,7 @@ import requests
 import json
 
 class ClickTracker:
-    def __init__(self, base_url="http://localhost:5000"):
+    def __init__(self, base_url="https://btbsitess.onrender.com/"):
         self.base_url = base_url
         self.is_online = False
         self.check_connection()

@@ -38,7 +38,10 @@ class Launcher:
         self.set_window_icon()
         self.root.protocol("WM_DELETE_WINDOW", self.force_close)
         self.center_window()
-        self.show_loading_screen()
+        
+        # Show entry page immediately instead of loading screen
+        self.show_entry_page()
+        
         self.timeout_id = None  # Store timeout ID for cancellation
         self.process_alive = True  # Flag to keep process running
         self.root.mainloop()
@@ -64,40 +67,6 @@ class Launcher:
         y = (screen_height - 720) // 2
         self.root.geometry(f"1280x720+{x}+{y}")
 
-    def show_loading_screen(self):
-        for widget in self.root.winfo_children():
-            widget.destroy()
-        
-        canvas = tk.Canvas(self.root, width=1280, height=720)
-        canvas.pack()
-        bg_color = "#000000"
-        canvas.create_rectangle(0, 0, 1280, 720, fill=bg_color, outline="")
-        
-        try:
-            logo_path = os.path.join(basePath, "icon", "logo.png")
-            logo_img = Image.open(logo_path)
-            logo_img = logo_img.resize((200, 200))
-            self.logo_photo = ImageTk.PhotoImage(logo_img)
-            canvas.create_image(640, 150, image=self.logo_photo)
-        except Exception as e:
-            print(f"Logo image not found: {e}, using text instead")
-            canvas.create_text(640, 150, text="Beyond The Brush",
-                             font=self.title_font, fill="white")
-
-        canvas.create_text(640, 360, text="Loading...",
-                         font=self.loading_font, fill="white")
-        progress = canvas.create_rectangle(410, 400, 410, 430, fill="#2575fc", outline="")
-
-        for i in range(1, 101):
-            try:
-                canvas.coords(progress, 410, 400, 410 + (i * 4), 430)
-                self.root.update()
-                time.sleep(0.03)
-            except tk.TclError:
-                return
-
-        self.show_entry_page()
-
     def show_background_loading_screen(self):
         for widget in self.root.winfo_children():
             widget.destroy()
@@ -118,20 +87,48 @@ class Launcher:
             canvas.create_text(640, 150, text="Beyond The Brush",
                              font=self.title_font, fill="white")
 
-        self.loading_text = canvas.create_text(640, 360, text="Loading VirtualPainter...",
+        # Create loading text and animation
+        self.loading_text = canvas.create_text(640, 360, text="Loading Please Wait...",
                                             font=self.loading_font, fill="white")
+        
+        # Create rectangular loading animation
+        self.loading_rect = canvas.create_rectangle(440, 400, 440, 430, fill="#2575fc", outline="")
         self.canvas = canvas
+        
+        # Start both animations
         self.animate_dots()
+        self.animate_rectangle()
 
     def animate_dots(self):
         try:
             current_text = self.canvas.itemcget(self.loading_text, "text")
             if current_text.endswith("..."):
-                new_text = "Loading VirtualPainter"
+                new_text = "Loading Please Wait"
             else:
                 new_text = current_text + "."
             self.canvas.itemconfig(self.loading_text, text=new_text)
             self.root.after(500, self.animate_dots)
+        except tk.TclError:
+            return
+
+    def animate_rectangle(self):
+        """Animate the rectangular loading bar"""
+        try:
+            # Get current coordinates of the rectangle
+            coords = self.canvas.coords(self.loading_rect)
+            if len(coords) >= 4:
+                current_width = coords[2] - coords[0]
+                
+                # Reset if full width (840 - 440 = 400)
+                if current_width >= 400:
+                    self.canvas.coords(self.loading_rect, 440, 400, 440, 430)
+                else:
+                    # Increase width by 20 pixels each step
+                    new_width = current_width + 20
+                    self.canvas.coords(self.loading_rect, 440, 400, 440 + new_width, 430)
+            
+            # Continue animation
+            self.root.after(100, self.animate_rectangle)
         except tk.TclError:
             return
 
@@ -191,6 +188,7 @@ class Launcher:
     def on_enter_click(self):
         tracker.track_click(button="btb_enter", page="beyondthebrush_app")
         if not self.check_internet_connection():
+            
             messagebox.showerror("Connection Error", 
                               "Connection Lost, Please Try Again\n\n"
                               "Please check your internet connection and try again.")
@@ -215,6 +213,7 @@ class Launcher:
                                   "Please check your internet connection and try again.")
                 return
                 
+            # Show loading screen with rectangular animation when Enter is clicked
             self.show_background_loading_screen()
             
             # Create a flag to track VirtualPainter readiness
