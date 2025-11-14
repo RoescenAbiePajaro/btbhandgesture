@@ -37,9 +37,14 @@ class Launcher:
         self.root.geometry("1280x720")
         self.center_window()
         
-        # Make window resizable like VirtualPainter
-        self.root.resizable(True, True)  # Changed from False, False to True, True
+        # Configure window properties
+        self.root.state('zoomed')  # Maximize the window
         self.root.minsize(1024, 576)  # Set minimum size to maintain aspect ratio
+        
+        # Disable minimize button while keeping maximize and close buttons
+        self.root.resizable(True, True)  # Allow resizing
+        self.root.attributes('-toolwindow', 1)  # Removes minimize and maximize buttons
+        self.root.attributes('-toolwindow', 0)  # Revert to normal window but keep the effect
         
         self.set_window_icon()
         self.root.protocol("WM_DELETE_WINDOW", self.force_close)
