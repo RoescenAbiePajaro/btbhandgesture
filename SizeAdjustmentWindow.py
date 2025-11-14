@@ -1,17 +1,29 @@
 # SizeAdjustmentWindow
 
 import tkinter as tk
-from tkinter import ttk
+from tkinter import ttk, filedialog, messagebox
 import json
 import os
 import sys
+import pyautogui
+import numpy as np
+from PIL import Image, ImageGrab
+import cv2
+import time
+from track_click import tracker
 
 class SizeAdjustmentWindow:
     def __init__(self):
         self.window = tk.Tk()
         self.window.title("Control Panel")
-        self.window.geometry("300x250")
-        self.window.resizable(False, False)
+        self.window.geometry("400x500")  # Set initial size
+        self.window.resizable(False, False)  # Disable resizing in both directions
+        self.window.minsize(400, 500)  # Set minimum size same as initial size
+        self.window.maxsize(400, 500)  # Set maximum size same as initial size
+        
+        # Configure grid weights
+        self.window.columnconfigure(0, weight=1)
+        self.window.rowconfigure(0, weight=1)
         
         # Control mode is now fixed to hand gesture control
         
@@ -29,42 +41,68 @@ class SizeAdjustmentWindow:
         self.load_config()
         
         # Control mode is now fixed to hand gesture control
-        # Create frames for brush and eraser controls
-        brush_frame = ttk.LabelFrame(self.window, text="Brush Size", padding="5")
-        brush_frame.pack(fill="x", padx=5, pady=5)
+        # Create main container with padding
+        main_frame = ttk.Frame(self.window, padding="10 10 10 10")
+        main_frame.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
         
-        eraser_frame = ttk.LabelFrame(self.window, text="Eraser Size", padding="5")
-        eraser_frame.pack(fill="x", padx=5, pady=5)
+        # Create frames for brush and eraser controls
+        brush_frame = ttk.LabelFrame(main_frame, text="Brush Size", padding="10")
+        brush_frame.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S), pady=5)
+        
+        eraser_frame = ttk.LabelFrame(main_frame, text="Eraser Size", padding="10")
+        eraser_frame.grid(row=1, column=0, sticky=(tk.W, tk.E, tk.N, tk.S), pady=5)
         
         # Brush size controls
         self.brush_size = tk.IntVar(value=min(max(1, self.current_brush_size), 200))
+        
+        # Brush size label
+        self.brush_label = ttk.Label(brush_frame, text=f"Current Size: {self.current_brush_size}", 
+                                   font=('Helvetica', 10, 'bold'))
+        self.brush_label.pack(pady=(0, 10))
+        
+        # Brush size slider
         self.brush_slider = ttk.Scale(
             brush_frame,
             from_=1,
             to=200,
             orient="horizontal",
             variable=self.brush_size,
-            command=self.update_brush_size
+            command=self.update_brush_size,
+            length=300
         )
-        self.brush_slider.pack(fill="x", padx=5)
+        self.brush_slider.pack(fill="x", padx=10, pady=5)
         
-        self.brush_label = ttk.Label(brush_frame, text=f"Size: {self.current_brush_size}")
-        self.brush_label.pack()
+        # Brush size min/max labels
+        size_frame = ttk.Frame(brush_frame)
+        size_frame.pack(fill="x", padx=10)
+        ttk.Label(size_frame, text="1").pack(side="left")
+        ttk.Label(size_frame, text="200").pack(side="right")
         
         # Eraser size controls
         self.eraser_size = tk.IntVar(value=min(max(10, self.current_eraser_size), 200))
+        
+        # Eraser size label
+        self.eraser_label = ttk.Label(eraser_frame, text=f"Current Size: {self.current_eraser_size}", 
+                                     font=('Helvetica', 10, 'bold'))
+        self.eraser_label.pack(pady=(0, 10))
+        
+        # Eraser size slider
         self.eraser_slider = ttk.Scale(
             eraser_frame,
             from_=10,
             to=200,
             orient="horizontal",
             variable=self.eraser_size,
-            command=self.update_eraser_size
+            command=self.update_eraser_size,
+            length=300
         )
-        self.eraser_slider.pack(fill="x", padx=5)
+        self.eraser_slider.pack(fill="x", padx=10, pady=5)
         
-        self.eraser_label = ttk.Label(eraser_frame, text=f"Size: {self.current_eraser_size}")
-        self.eraser_label.pack()
+        # Eraser size min/max labels
+        size_frame = ttk.Frame(eraser_frame)
+        size_frame.pack(fill="x", padx=10)
+        ttk.Label(size_frame, text="10").pack(side="left")
+        ttk.Label(size_frame, text="200").pack(side="right")
         
         
         # Keep track of the last applied values
@@ -76,9 +114,107 @@ class SizeAdjustmentWindow:
         # Make window stay on top
         self.window.attributes('-topmost', True)
         
+        # Add screenshot buttons frame
+        screenshot_frame = ttk.LabelFrame(main_frame, text="Screenshot", padding="10")
+        screenshot_frame.grid(row=2, column=0, sticky=(tk.W, tk.E, tk.N, tk.S), pady=5)
+        
+        # Button to capture entire screen (person + drawing)
+        self.capture_all_btn = ttk.Button(
+            screenshot_frame,
+            text="Capture Person + Drawing",
+            command=self.capture_screen,
+            style="Accent.TButton",
+            width=25
+        )
+        self.capture_all_btn.pack(fill="x", padx=5, pady=10, ipady=5)
+        
+        # Canvas region storage (kept in case needed by other parts of the code)
+        self.canvas_region = None
+        
+        # Apply custom style for buttons with better visibility
+        style = ttk.Style()
+        
+        # Configure the default button style for better visibility
+        style.configure('TButton', 
+                      font=('Helvetica', 10, 'bold'),
+                      padding=6)
+        
+        # Configure the accent button style
+        style.configure('Accent.TButton', 
+                       background='#4CAF50',
+                       foreground='white',
+                       font=('Helvetica', 10, 'bold'),
+                       padding=6)
+        
+        # Map the button states for better visual feedback
+        style.map('Accent.TButton',
+                 background=[('active', '#45a049'), ('pressed', '#3d8b40')],
+                 foreground=[('active', 'white'), ('pressed', 'white')])
+        
+        # Configure label styles
+        style.configure('TLabel', 
+                       font=('Helvetica', 10),
+                       background='white')
+        
+        # Configure frame styles
+        style.configure('TFrame', 
+                       background='white')
+        
+        # Configure label frames
+        style.configure('TLabelframe', 
+                       font=('Helvetica', 10, 'bold'),
+                       background='white')
+        style.configure('TLabelframe.Label', 
+                       font=('Helvetica', 10, 'bold'),
+                       background='white')
+        
         # Handle window close
         self.window.protocol("WM_DELETE_WINDOW", self.on_closing)
         
+    def capture_screen(self):
+        try:
+            # Create btbSavedImage folder in Downloads if it doesn't exist
+            download_folder = os.path.join(os.path.expanduser("~"), "Downloads")
+            save_folder = os.path.join(download_folder, "beyondthebrush_app_saved_canvas")
+            os.makedirs(save_folder, exist_ok=True)
+            
+            timestamp = time.strftime("%Y%m%d_%H%M%S")
+            save_path = os.path.join(save_folder, f"btb_screenshot_{timestamp}.png")
+            
+            # Take screenshot
+            screenshot = pyautogui.screenshot()
+            
+            # Save the image
+            screenshot.save(save_path)
+            
+            # Track the screenshot action
+            tracker.track_click(button="btb_screenshot", page="beyondthebrush_app")
+            
+            # Show success message
+            messagebox.showinfo("Success", f"Screenshot saved to:\n{save_path}")
+            print(f"Screenshot saved to: {save_path}")
+            
+        except Exception as e:
+            print(f"Error capturing screenshot: {str(e)}")
+            messagebox.showerror("Error", f"Failed to capture screenshot: {str(e)}")
+    
+            screenshot.save(save_path)
+            
+            # Track the canvas save action
+            tracker.track_click(button="btb_saved_canvas", page="beyondthebrush_app")
+            
+            # Show success message
+            messagebox.showinfo("Success", f"Canvas saved to:\n{save_path}")
+            print(f"Canvas saved to: {save_path}")
+            
+        except Exception as e:
+            print(f"Error capturing canvas: {str(e)}")
+            messagebox.showerror("Error", f"Failed to capture canvas: {str(e)}")
+    
+    def set_canvas_region(self, x, y, width, height):
+        """Set the canvas region for screenshot capture"""
+        self.canvas_region = (x, y, width, height)
+    
     def load_config(self):
         try:
             if os.path.exists(self.config_file):
@@ -107,7 +243,7 @@ class SizeAdjustmentWindow:
     def update_brush_size(self, value):
         try:
             size = int(float(value))
-            self.brush_label.config(text=f"Size: {size}")
+            self.brush_label.config(text=f"Current Size: {size}")
             self.current_brush_size = size
             if self.on_size_change_callback:
                 self.on_size_change_callback('brush', size)
@@ -117,7 +253,7 @@ class SizeAdjustmentWindow:
     def update_eraser_size(self, value):
         try:
             size = int(float(value))
-            self.eraser_label.config(text=f"Size: {size}")
+            self.eraser_label.config(text=f"Current Size: {size}")
             self.current_eraser_size = size
             if self.on_size_change_callback:
                 self.on_size_change_callback('eraser', size)

@@ -612,12 +612,14 @@ try:
             print("Program terminated by user")
             os._exit(0)  # Force exit on KeyboardInterrupt too
 
-        # 8. Convert Canvas to Grayscale and Invert
-        imgGray = cv2.cvtColor(imgCanvas, cv2.COLOR_BGR2GRAY)
-        _, imgInv = cv2.threshold(imgGray, 50, 255, cv2.THRESH_BINARY_INV)
-        imgInv = cv2.cvtColor(imgInv, cv2.COLOR_GRAY2BGR)
-        img = cv2.bitwise_and(img, imgInv)
-        img = cv2.bitwise_or(img, imgCanvas)
+        # 8. Blend the drawing canvas with the camera feed
+        # Create a mask from the canvas where there are drawings (non-black pixels)
+        mask = cv2.cvtColor(cv2.cvtColor(imgCanvas, cv2.COLOR_BGR2GRAY), cv2.COLOR_GRAY2BGR)
+        mask = (mask > 0).astype(np.uint8) * 255
+        
+        # Use the mask to blend the canvas onto the camera feed
+        img = cv2.bitwise_and(img, 255 - mask)  # Remove drawn areas from camera feed
+        img = cv2.add(img, imgCanvas)  # Add the canvas with drawings
 
         # 9. Set Header Image
         if header is not None:
