@@ -86,10 +86,29 @@ swipe_active = False  # To track if swipe is in progress
 # Default drawing color
 drawColor = (255, 0, 255)
 
+def find_working_camera():
+    """Try to find a working camera by testing available camera indices."""
+    # Try up to 10 camera indices (adjust range as needed)
+    for i in range(10):
+        cap = cv2.VideoCapture(i, cv2.CAP_DSHOW)  # Use DSHOW on Windows for better compatibility
+        if cap.isOpened():
+            # Try to read a frame to verify the camera works
+            ret = cap.grab()
+            if ret:
+                print(f"Found working camera at index {i}")
+                return cap
+            cap.release()
+    # If no camera found, raise an error
+    raise Exception("No working camera found. Please connect a camera and try again.")
+
 # Set up the camera
-cap = cv2.VideoCapture(0)
-cap.set(3, 1280)  # Width
-cap.set(4, 720)  # Height
+try:
+    cap = find_working_camera()
+    cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)  # Width
+    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)  # Height
+except Exception as e:
+    print(f"Error initializing camera: {e}")
+    exit(1)
 
 # Assigning Detector
 detector = htm.handDetector(detectionCon=0.85)
