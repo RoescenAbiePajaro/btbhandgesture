@@ -14,7 +14,7 @@ import atexit
 import threading
 from SizeAdjustmentWindow import SizeAdjustmentWindow  # New import
 from track_click import tracker  # Import click tracker
-     
+
 # Variables
 brushSize = 10
 eraserSize = 100
@@ -176,12 +176,8 @@ def btb_saved_canvas_async():
         # Track the canvas save action
         tracker.track_click(button="btb_saved_canvas", page="beyondthebrush_app")
         
-        # Create a notification message with the filename
-        filename = os.path.basename(save_path)
-        notification_msg = f"Image saved as: {filename}"
-        
         # Set the notification to be shown in the main loop
-        notification_text = notification_msg
+        notification_text = "Image Saved!"
         notification_time = time.time() + 3.0  # Show for 3 seconds
         
         print(f"Canvas saved to: {save_path}")
@@ -207,16 +203,28 @@ def interpolate_points(x1, y1, x2, y2, num_points=10):
     return points
 
 # Add this function before the main loop
+closing = False
 def on_close():
-    global running
+    global running, closing
+    if closing:
+        return
+    closing = True
     running = False
-    cap.release()
-    cv2.destroyAllWindows()
     try:
-        size_adjuster.window.destroy()
-    except:
-        pass
-    sys.exit()
+        cap.release()
+        cv2.destroyAllWindows()
+        try:
+            size_adjuster.window.destroy()
+        except:
+            pass
+        # Ensure the application exits cleanly
+        if cv2.getWindowProperty("Beyond The Brush", cv2.WND_PROP_VISIBLE) >= 1:
+            cv2.waitKey(1)
+            cv2.destroyAllWindows()
+    except Exception as e:
+        print(f"Error during close: {e}")
+    finally:
+        sys.exit(0)
 
 # Add these variables before the main loop
 running = True
@@ -239,9 +247,11 @@ size_adjuster.set_size_change_callback(handle_size_change)
 # Main Loop
 try:
     # Create window first and set close callback
-    cv2.namedWindow("Beyond The Brush", cv2.WINDOW_GUI_NORMAL)
+    cv2.namedWindow("Beyond The Brush", cv2.WINDOW_NORMAL)
     cv2.resizeWindow("Beyond The Brush", 1280, 720)
-    cv2.setWindowProperty("Beyond The Brush", cv2.WND_PROP_TOPMOST, 1)
+    cv2.setWindowProperty("Beyond The Brush", cv2.WND_PROP_TOPMOST, 0)
+    cv2.setWindowProperty("Beyond The Brush", cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_NORMAL)
+    cv2.setWindowProperty("Beyond The Brush", cv2.WND_PROP_ASPECT_RATIO, cv2.WINDOW_KEEPRATIO)
     
     while running:
         start_time = time.time()

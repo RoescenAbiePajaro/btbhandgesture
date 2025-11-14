@@ -1,3 +1,4 @@
+# main.py
 import tkinter as tk
 from tkinter import messagebox
 import time
@@ -31,10 +32,15 @@ class Launcher:
         
         self.root = tk.Tk()
         self.root.title("Beyond The Brush")
-        self.center_window()
+        
+        # Set window properties to match VirtualPainter.py
         self.root.geometry("1280x720")
-        self.root.resizable(False, False)
-
+        self.center_window()
+        
+        # Make window resizable like VirtualPainter
+        self.root.resizable(True, True)  # Changed from False, False to True, True
+        self.root.minsize(1024, 576)  # Set minimum size to maintain aspect ratio
+        
         self.set_window_icon()
         self.root.protocol("WM_DELETE_WINDOW", self.force_close)
         self.center_window()
@@ -44,6 +50,14 @@ class Launcher:
         
         self.timeout_id = None  # Store timeout ID for cancellation
         self.process_alive = True  # Flag to keep process running
+        self.animation_running = False  # Track if animation is running
+        
+        # Variables for loading animation
+        self.loading_start_time = None
+        self.last_width = 0
+        self.dots_animation_id = None
+        self.rectangle_animation_id = None
+        
         self.root.mainloop()
 
     def set_window_icon(self):
@@ -71,20 +85,28 @@ class Launcher:
         for widget in self.root.winfo_children():
             widget.destroy()
         
-        canvas = tk.Canvas(self.root, width=1280, height=720)
-        canvas.pack()
+        # Create a frame that will handle resizing
+        main_frame = tk.Frame(self.root)
+        main_frame.pack(fill=tk.BOTH, expand=True)
+        
+        canvas = tk.Canvas(main_frame, width=1280, height=720)
+        canvas.pack(fill=tk.BOTH, expand=True)
+        
+        # Store canvas reference for resizing
+        self.canvas = canvas
+        
         bg_color = "#000000"
-        canvas.create_rectangle(0, 0, 1280, 720, fill=bg_color, outline="")
+        self.bg_rect = canvas.create_rectangle(0, 0, 1280, 720, fill=bg_color, outline="")
         
         try:
             logo_path = os.path.join(basePath, "icon", "logo.png")
             logo_img = Image.open(logo_path)
             logo_img = logo_img.resize((200, 200))
             self.logo_photo = ImageTk.PhotoImage(logo_img)
-            canvas.create_image(640, 150, image=self.logo_photo)
+            self.logo_image = canvas.create_image(640, 150, image=self.logo_photo)
         except Exception as e:
             print(f"Logo image not found: {e}, using text instead")
-            canvas.create_text(640, 150, text="Beyond The Brush",
+            self.logo_text = canvas.create_text(640, 150, text="Beyond The Brush",
                              font=self.title_font, fill="white")
 
         # Create loading text and animation
@@ -93,13 +115,71 @@ class Launcher:
         
         # Create rectangular loading animation
         self.loading_rect = canvas.create_rectangle(440, 400, 440, 430, fill="#2575fc", outline="")
-        self.canvas = canvas
         
-        # Start both animations
+        # Bind resize event
+        canvas.bind('<Configure>', self.on_canvas_resize)
+        
+        # Start animations
+        self.start_loading_animations()
+
+    def start_loading_animations(self):
+        """Start both loading animations"""
+        self.animation_running = True
+        self.loading_start_time = time.time()
+        self.last_width = 0
+        
+        # Start dots animation
         self.animate_dots()
+        
+        # Start rectangle animation
         self.animate_rectangle()
 
+    def stop_loading_animations(self):
+        """Stop all loading animations"""
+        self.animation_running = False
+        if self.dots_animation_id:
+            self.root.after_cancel(self.dots_animation_id)
+        if self.rectangle_animation_id:
+            self.root.after_cancel(self.rectangle_animation_id)
+
+    def on_canvas_resize(self, event):
+        """Handle canvas resizing while maintaining aspect ratio"""
+        if hasattr(self, 'canvas'):
+            # Update background rectangle
+            self.canvas.coords(self.bg_rect, 0, 0, event.width, event.height)
+            
+            # Update positions based on new size
+            center_x = event.width // 2
+            center_y = event.height // 2
+            
+            # Update logo position
+            if hasattr(self, 'logo_image'):
+                self.canvas.coords(self.logo_image, center_x, center_y - 200)
+            elif hasattr(self, 'logo_text'):
+                self.canvas.coords(self.logo_text, center_x, center_y - 200)
+            
+            # Update loading text position
+            if hasattr(self, 'loading_text'):
+                self.canvas.coords(self.loading_text, center_x, center_y)
+            
+            # Update loading bar position and width
+            if hasattr(self, 'loading_rect'):
+                bar_width = min(400, event.width - 200)  # Max 400 or screen width - 200
+                bar_x = center_x - bar_width // 2
+                # Get current progress to maintain loading bar position
+                if self.loading_start_time:
+                    elapsed = time.time() - self.loading_start_time
+                    progress = min(elapsed / 30.0, 1.0)
+                    current_width = int(bar_width * progress)
+                    self.canvas.coords(self.loading_rect, bar_x, center_y + 40, bar_x + current_width, center_y + 70)
+                else:
+                    self.canvas.coords(self.loading_rect, bar_x, center_y + 40, bar_x, center_y + 70)
+
     def animate_dots(self):
+        """Animate the loading dots - continues even when window is minimized"""
+        if not self.animation_running:
+            return
+            
         try:
             current_text = self.canvas.itemcget(self.loading_text, "text")
             if current_text.endswith("..."):
@@ -107,31 +187,47 @@ class Launcher:
             else:
                 new_text = current_text + "."
             self.canvas.itemconfig(self.loading_text, text=new_text)
-            self.root.after(500, self.animate_dots)
+            self.dots_animation_id = self.root.after(500, self.animate_dots)
         except tk.TclError:
             return
 
-    def animate_rectangle(self, start_time=None, last_width=0):
-        """Animate the rectangular loading bar over 30 seconds"""
+    def animate_rectangle(self):
+        """Animate the rectangular loading bar - continues even when window is minimized"""
+        if not self.animation_running:
+            return
+            
         try:
-            if start_time is None:
-                start_time = time.time()
+            if self.loading_start_time is None:
+                self.loading_start_time = time.time()
+                self.last_width = 0
                 
             # Calculate elapsed time and progress
-            elapsed = time.time() - start_time
+            elapsed = time.time() - self.loading_start_time
             progress = min(elapsed / 30.0, 1.0)  # 30 seconds total duration
             
-            # Calculate target width based on progress (400 is max width)
-            target_width = int(400 * progress)
+            # Get current canvas width for responsive sizing
+            canvas_width = self.canvas.winfo_width()
+            max_bar_width = min(400, canvas_width - 200)
+            
+            # Calculate target width based on progress
+            target_width = int(max_bar_width * progress)
             
             # Only update if width has changed
-            if target_width > last_width:
-                self.canvas.coords(self.loading_rect, 440, 400, 440 + target_width, 430)
-                last_width = target_width
+            if target_width > self.last_width:
+                center_x = canvas_width // 2
+                center_y = self.canvas.winfo_height() // 2
+                bar_x = center_x - max_bar_width // 2
+                self.canvas.coords(self.loading_rect, bar_x, center_y + 40, bar_x + target_width, center_y + 70)
+                self.last_width = target_width
             
             # Continue animation if not complete
             if progress < 1.0:
-                self.root.after(50, lambda: self.animate_rectangle(start_time, last_width))
+                self.rectangle_animation_id = self.root.after(50, self.animate_rectangle)
+            else:
+                # Restart animation if it completes (safety measure)
+                self.loading_start_time = time.time()
+                self.last_width = 0
+                self.rectangle_animation_id = self.root.after(50, self.animate_rectangle)
                 
         except tk.TclError:
             return
@@ -141,45 +237,80 @@ class Launcher:
         for widget in self.root.winfo_children():
             widget.destroy()
         
+        # Create a main frame that handles resizing
+        main_frame = tk.Frame(self.root)
+        main_frame.pack(fill=tk.BOTH, expand=True)
+        
         bg_color = "#000000"
-        canvas = tk.Canvas(self.root, width=1280, height=720, bg=bg_color)
-        canvas.pack()
-
+        canvas = tk.Canvas(main_frame, width=1280, height=720, bg=bg_color)
+        canvas.pack(fill=tk.BOTH, expand=True)
+        
+        # Store references for resizing
+        self.entry_canvas = canvas
+        
+        # Create background rectangle for entry page
+        self.entry_bg_rect = canvas.create_rectangle(0, 0, 1280, 720, fill=bg_color, outline="")
+        
         try:
             logo_path = os.path.join(basePath, "icon", "logo.png")
             logo_img = Image.open(logo_path)
             logo_img = logo_img.resize((200, 200))
             self.logo_photo = ImageTk.PhotoImage(logo_img)
-            canvas.create_image(640, 180, image=self.logo_photo)
+            self.entry_logo = canvas.create_image(640, 150, image=self.logo_photo)
         except Exception as e:
             print(f"Logo image not found: {e}, using text instead")
-            canvas.create_text(640, text="Beyond The Brush",
+            self.entry_logo = canvas.create_text(640, 150, text="Beyond The Brush",
                                font=self.title_font, fill="white")
 
-        canvas.create_text(640, 325, text="Beyond The Brush",
+        self.title_text = canvas.create_text(640, 300, text="Beyond The Brush",
                          font=("Arial", 36,), fill="white")
         
-        button_frame = tk.Frame(self.root, bg=bg_color)
-        button_frame.place(relx=0.5, rely=0.65, anchor='center')
+        # Create button frame that centers properly
+        self.button_frame = tk.Frame(canvas, bg=bg_color)
+        self.button_frame_id = canvas.create_window(640, 450, window=self.button_frame, anchor='center')
 
-        enter_btn = tk.Button(button_frame, text="Enter", font=self.normal_font,
+        enter_btn = tk.Button(self.button_frame, text="Enter", font=self.normal_font,
                              command=self.on_enter_click, bg="#2575fc", fg="white",
                              activebackground="#1a5dc2", activeforeground="white",
                              width=15, height=1)
         enter_btn.pack(pady=10)
         
-        exit_btn = tk.Button(button_frame, text="Exit", font=self.normal_font,
+        exit_btn = tk.Button(self.button_frame, text="Exit", font=self.normal_font,
                              command=self.force_close, bg="#ff00ff", fg="white",
                              activebackground="#cc00cc", activeforeground="white",
                              width=15, height=1)
         exit_btn.pack(pady=10)
 
-        warning_label = tk.Label(button_frame, 
+        warning_label = tk.Label(self.button_frame, 
                                  text="⚠ When you click Enter, please wait\nand do not turn off your computer.",
                                  font=self.small_font, fg="gray", bg=bg_color, justify="center")
         warning_label.pack(pady=5)
 
+        # Bind resize event
+        canvas.bind('<Configure>', self.on_entry_resize)
+
         self.root.bind('<Return>', lambda event: self.on_enter_click())
+
+    def on_entry_resize(self, event):
+        """Handle entry page resizing"""
+        if hasattr(self, 'entry_canvas'):
+            # Update background
+            self.entry_canvas.coords(self.entry_bg_rect, 0, 0, event.width, event.height)
+            
+            center_x = event.width // 2
+            center_y = event.height // 2
+            
+            # Update logo position (positioned higher on the screen)
+            if hasattr(self, 'entry_logo'):
+                self.entry_canvas.coords(self.entry_logo, center_x, 150)
+            
+            # Update title position (positioned below logo)
+            if hasattr(self, 'title_text'):
+                self.entry_canvas.coords(self.title_text, center_x, 300)
+            
+            # Update button frame position (positioned below title)
+            if hasattr(self, 'button_frame_id'):
+                self.entry_canvas.coords(self.button_frame_id, center_x, 450)
 
     def check_internet_connection(self, host="8.8.8.8", port=53, timeout=3):
         try:
@@ -232,6 +363,8 @@ class Launcher:
             if self.timeout_id:
                 self.root.after_cancel(self.timeout_id)
                 self.timeout_id = None
+            # Stop animations
+            self.stop_loading_animations()
             messagebox.showerror("Error", f"Failed to launch application: {str(e)}")
             self.show_entry_page()
 
@@ -243,6 +376,8 @@ class Launcher:
                 if self.timeout_id:
                     self.root.after_cancel(self.timeout_id)
                     self.timeout_id = None
+                # Stop animations
+                self.stop_loading_animations()
                 self.root.destroy()  # Close main window when VirtualPainter is ready
             else:
                 self.root.after(100, self.check_vp_ready)  # Check again after 100ms
@@ -274,6 +409,8 @@ class Launcher:
         if self.timeout_id:
             self.root.after_cancel(self.timeout_id)
             self.timeout_id = None
+        # Stop animations
+        self.stop_loading_animations()
         try:
             self.root.destroy()
         except tk.TclError:
@@ -285,6 +422,8 @@ class Launcher:
         if self.timeout_id:
             self.root.after_cancel(self.timeout_id)
             self.timeout_id = None
+        # Stop animations
+        self.stop_loading_animations()
         try:
             self.root.destroy()
         except tk.TclError:
