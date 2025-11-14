@@ -168,29 +168,38 @@ def btb_saved_canvas_async():
 
         # Draw all text objects onto the saved image
         for obj in keyboard_input.text_objects:
-            # Draw outline (thicker)
-            cv2.putText(
-                saved_img,
-                obj['text'],
-                obj['position'],
-                obj['font'],
-                obj['scale'],
-                (0, 0, 0),  # Black outline
-                obj['thickness'] + 2
-            )
-            # Draw main text
-            cv2.putText(
-                saved_img,
-                obj['text'],
-                obj['position'],
-                obj['font'],
-                obj['scale'],
-                obj['color'],
-                obj['thickness']
-            )
+            # Only process text objects that are below the header (y > 125)
+            if obj['position'][1] > 125:  # 125 is the header height
+                # Draw outline (thicker)
+                cv2.putText(
+                    saved_img,
+                    obj['text'],
+                    obj['position'],
+                    obj['font'],
+                    obj['scale'],
+                    (0, 0, 0),  # Black outline
+                    obj['thickness'] + 2
+                )
+                # Draw main text
+                cv2.putText(
+                    saved_img,
+                    obj['text'],
+                    obj['position'],
+                    obj['font'],
+                    obj['scale'],
+                    obj['color'],
+                    obj['thickness']
+                )
 
-        # Save the image
-        cv2.imwrite(save_path, saved_img)
+        # Crop the image to exclude the header (first 125 pixels in height)
+        # Check if the image is tall enough to crop (should always be true in normal operation)
+        if saved_img.shape[0] > 125:  # If height > 125
+            cropped_img = saved_img[125:, :]  # Take all rows from 125 to end, all columns
+        else:
+            cropped_img = saved_img  # Fallback to original if too small
+
+        # Save the cropped image
+        cv2.imwrite(save_path, cropped_img)
         
         # Track the canvas save action
         tracker.track_click(button="btb_saved_canvas", page="beyondthebrush_app")
