@@ -274,12 +274,22 @@ size_adjuster.set_size_change_callback(handle_size_change)
 
 # Main Loop
 try:
-    # Create window first and set close callback
+    # Create window in normal mode then maximize
     cv2.namedWindow("Beyond The Brush", cv2.WINDOW_NORMAL)
-    cv2.resizeWindow("Beyond The Brush", 1280, 720)
-    cv2.setWindowProperty("Beyond The Brush", cv2.WND_PROP_TOPMOST, 0)
-    cv2.setWindowProperty("Beyond The Brush", cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_NORMAL)
-    cv2.setWindowProperty("Beyond The Brush", cv2.WND_PROP_ASPECT_RATIO, cv2.WINDOW_KEEPRATIO)
+    cv2.resizeWindow("Beyond The Brush", 1280, 720)  # Initial size
+    
+    # Show window briefly
+    cv2.imshow("Beyond The Brush", np.zeros((100, 100, 3), np.uint8))
+    cv2.waitKey(1)
+    
+    # Maximize while keeping window controls
+    cv2.setWindowProperty("Beyond The Brush", cv2.WND_PROP_FULLSCREEN, 0)  # Not fullscreen
+    cv2.setWindowProperty("Beyond The Brush", cv2.WND_PROP_ASPECT_RATIO, cv2.WINDOW_FREERATIO)
+    
+    # Set to screen dimensions (adjust these to your screen resolution)
+    screen_width = 1920  # Change to your screen width
+    screen_height = 1080  # Change to your screen height
+    cv2.resizeWindow("Beyond The Brush", screen_width, screen_height)
     
     while running:
         start_time = time.time()

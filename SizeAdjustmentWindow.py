@@ -15,7 +15,7 @@ from track_click import tracker
 class SizeAdjustmentWindow:
     def __init__(self):
         self.window = tk.Tk()
-        self.window.title("Control Panel")
+        self.window.title("Other Settings")
         self.window.geometry("400x500")  # Set initial size
         self.window.resizable(False, False)  # Disable resizing in both directions
         self.window.minsize(400, 500)  # Set minimum size same as initial size
