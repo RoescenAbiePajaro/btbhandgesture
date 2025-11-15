@@ -208,7 +208,7 @@ class Launcher:
                 
             # Calculate elapsed time and progress
             elapsed = time.time() - self.loading_start_time
-            progress = min(elapsed / 30.0, 1.0)  # 30 seconds total duration
+            progress = min(elapsed / 3.0, 1.0)  # 3 seconds total duration
             
             # Get current canvas width for responsive sizing
             canvas_width = self.canvas.winfo_width()
@@ -333,8 +333,8 @@ class Launcher:
                               "Connection Lost, Please Try Again\n\n"
                               "Please check your internet connection and try again.")
             return
-        # Start a 30-second timeout to close the main window
-        self.timeout_id = self.root.after(30000, self.close_main_window)
+        # Start a 3-second timeout to close the main window
+        self.timeout_id = self.root.after(3000, self.close_main_window)
         self.launch_application()
 
     def on_exit_click(self):
