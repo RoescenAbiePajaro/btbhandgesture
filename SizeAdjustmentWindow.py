@@ -15,10 +15,10 @@ class SizeAdjustmentWindow:
     def __init__(self):
         self.window = tk.Tk()
         self.window.title("Other Settings")
-        self.window.geometry("400x500")
+        self.window.geometry("350x450")
         self.window.resizable(False, False)
-        self.window.minsize(400, 500)
-        self.window.maxsize(400, 500)
+        self.window.minsize(350, 450)
+        self.window.maxsize(350, 450)
         
         # Configure grid weights
         self.window.columnconfigure(0, weight=1)
@@ -196,6 +196,13 @@ class SizeAdjustmentWindow:
             timestamp = time.strftime("%Y%m%d_%H%M%S")
             save_path = os.path.join(save_folder, f"btb_screenshot_{timestamp}.png")
             
+            # Hide the window temporarily
+            self.window.withdraw()
+            
+            # Small delay to ensure the window is hidden before taking screenshot
+            self.window.update()
+            time.sleep(0.5)
+            
             # Take screenshot with memory optimization
             screenshot = None
             try:
@@ -216,9 +223,16 @@ class SizeAdjustmentWindow:
                 if screenshot:
                     del screenshot
                 
+                # Show the window again
+                self.window.deiconify()
+                self.window.lift()
+                self.window.focus_force()
+                
         except Exception as e:
             print(f"Error capturing screenshot: {str(e)}")
             messagebox.showerror("Error", f"Failed to capture screenshot: {str(e)}")
+            # Ensure window is shown again in case of error
+            self.window.deiconify()
         finally:
             # MEMORY OPTIMIZATION: Force garbage collection after screenshot
             gc.collect()
