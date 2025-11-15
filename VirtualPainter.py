@@ -1,4 +1,4 @@
-#VirtualPainter.py
+# VirtualPainter.py
 import cv2
 import numpy as np
 import os
@@ -14,6 +14,7 @@ import atexit
 import threading
 from SizeAdjustmentWindow import SizeAdjustmentWindow  # New import
 from track_click import tracker  # Import click tracker
+import gc  # Add garbage collection
 
 # Variables
 brushSize = 10
@@ -39,15 +40,22 @@ if getattr(sys, 'frozen', False):
 else:
     # Running as normal Python script
     basePath = os.path.dirname(os.path.abspath(__file__))
+
 #####################################################################
-# Load header images
+# Load header images with memory optimization
 folderPath = os.path.join(basePath, 'header')
 if os.path.exists(folderPath) and os.path.isdir(folderPath):
     try:
         myList = sorted(os.listdir(folderPath))
-        overlayList = [cv2.imread(os.path.join(folderPath, imPath)) for imPath in myList]
-        # Remove any failed loads
-        overlayList = [img for img in overlayList if img is not None]
+        for imPath in myList:
+            img_path = os.path.join(folderPath, imPath)
+            img = cv2.imread(img_path)
+            if img is not None:
+                # Resize images to consistent size to save memory
+                img = cv2.resize(img, (1280, 125))
+                overlayList.append(img)
+            else:
+                print(f"Warning: Failed to load header image: {imPath}")
 
         if overlayList:
             header = overlayList[0]
@@ -56,20 +64,20 @@ if os.path.exists(folderPath) and os.path.isdir(folderPath):
     except Exception as e:
         print(f"Error loading header images from {folderPath}: {e}")
 
-# Load guide images
+# Load guide images with memory optimization
 folderPath = os.path.join(basePath, 'guide')
 if os.path.exists(folderPath) and os.path.isdir(folderPath):
     try:
         myList = sorted(os.listdir(folderPath))
         for imPath in myList:
-            img = cv2.imread(os.path.join(folderPath, imPath))
+            img_path = os.path.join(folderPath, imPath)
+            img = cv2.imread(img_path)
             if img is not None:
-                try:
-                    # Resize guide images to fit below header (1280x595)
-                    img = cv2.resize(img, (1280, 595))
-                    guideList.append(img)
-                except Exception as e:
-                    print(f"Error resizing guide image {imPath}: {e}")
+                # Resize guide images to fit below header (1280x595)
+                img = cv2.resize(img, (1280, 595))
+                guideList.append(img)
+            else:
+                print(f"Warning: Failed to load guide image: {imPath}")
 
         if guideList:
             current_guide_index = 0
@@ -106,6 +114,8 @@ try:
     cap = find_working_camera()
     cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)  # Width
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)  # Height
+    # Set buffer size to 1 to prevent frame accumulation
+    cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
 except Exception as e:
     print(f"Error initializing camera: {e}")
     exit(1)
@@ -122,6 +132,7 @@ imgCanvas = np.zeros((720, 1280, 3), np.uint8)
 # Undo/Redo Stack - now stores both canvas and text state
 undoStack = []
 redoStack = []
+MAX_UNDO_STACK_SIZE = 20  # Limit undo stack to prevent memory growth
 
 # Create keyboard input handler
 keyboard_input = KeyboardInput()
@@ -132,6 +143,12 @@ size_adjuster = SizeAdjustmentWindow()  # New size adjuster instance
 
 # Function to save current state (both canvas and text)
 def save_state():
+    # Limit undo stack size to prevent memory issues
+    if len(undoStack) >= MAX_UNDO_STACK_SIZE:
+        # Remove oldest state to make room
+        old_state = undoStack.pop(0)
+        del old_state  # Explicitly delete to free memory
+    
     return {
         'canvas': imgCanvas.copy(),
         'text_objects': keyboard_input.text_objects.copy()
@@ -149,6 +166,36 @@ def show_transient_notification(message, duration=1.0):
     global notification_text, notification_time
     notification_text = message
     notification_time = time.time() + duration
+
+def cleanup_resources():
+    """Clean up resources to prevent memory leaks"""
+    global cap, detector, keyboard_input, size_adjuster
+    
+    print("Cleaning up resources...")
+    
+    # Release camera
+    if 'cap' in globals() and cap is not None:
+        cap.release()
+    
+    # Close all OpenCV windows
+    cv2.destroyAllWindows()
+    
+    # Clean up tkinter windows
+    try:
+        if 'size_adjuster' in globals() and size_adjuster is not None:
+            size_adjuster.window.destroy()
+    except:
+        pass
+    
+    # Clear large data structures
+    global overlayList, guideList, undoStack, redoStack
+    overlayList.clear()
+    guideList.clear()
+    undoStack.clear()
+    redoStack.clear()
+    
+    # Force garbage collection
+    gc.collect()
 
 def btb_saved_canvas_async():
     """Save the canvas in a separate thread to prevent freezing"""
@@ -199,21 +246,30 @@ def btb_saved_canvas_async():
             cropped_img = saved_img  # Fallback to original if too small
 
         # Save the cropped image
-        cv2.imwrite(save_path, cropped_img)
+        success = cv2.imwrite(save_path, cropped_img)
         
-        # Track the canvas save action
-        tracker.track_click(button="btb_saved_canvas", page="beyondthebrush_app")
+        # Clean up temporary images
+        del saved_img, cropped_img
         
-        # Set the notification to be shown in the main loop
-        notification_text = "Image Saved!"
-        notification_time = time.time() + 3.0  # Show for 3 seconds
-        
-        print(f"Canvas saved to: {save_path}")
+        if success:
+            # Track the canvas save action
+            tracker.track_click(button="btb_saved_canvas", page="beyondthebrush_app")
+            
+            # Set the notification to be shown in the main loop
+            notification_text = "Image Saved!"
+            notification_time = time.time() + 3.0  # Show for 3 seconds
+            
+            print(f"Canvas saved to: {save_path}")
+        else:
+            raise Exception("cv2.imwrite returned False")
         
     except Exception as e:
         print(f"Error saving canvas: {str(e)}")
         notification_text = "Error saving image!"
         notification_time = time.time() + 3.0  # Show for 3 seconds
+    finally:
+        # Force garbage collection after save operation
+        gc.collect()
 
 def btb_saved_canvas():
     """Start the save process in a separate thread"""
@@ -239,16 +295,7 @@ def on_close():
     closing = True
     running = False
     try:
-        cap.release()
-        cv2.destroyAllWindows()
-        try:
-            size_adjuster.window.destroy()
-        except:
-            pass
-        # Ensure the application exits cleanly
-        if cv2.getWindowProperty("Beyond The Brush", cv2.WND_PROP_VISIBLE) >= 1:
-            cv2.waitKey(1)
-            cv2.destroyAllWindows()
+        cleanup_resources()
     except Exception as e:
         print(f"Error during close: {e}")
     finally:
@@ -272,6 +319,9 @@ def handle_size_change(tool_type, size):
 # Set the callback
 size_adjuster.set_size_change_callback(handle_size_change)
 
+# Register cleanup function
+atexit.register(cleanup_resources)
+
 # Main Loop
 try:
     # Create window first and set close callback
@@ -281,8 +331,12 @@ try:
     cv2.setWindowProperty("Beyond The Brush", cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_NORMAL)
     cv2.setWindowProperty("Beyond The Brush", cv2.WND_PROP_ASPECT_RATIO, cv2.WINDOW_KEEPRATIO)
     
+    frame_count = 0
+    gc_interval = 100  # Run garbage collection every 100 frames
+    
     while running:
         start_time = time.time()
+        frame_count += 1
 
         # 1. Import Image
         success, img = cap.read()
@@ -589,7 +643,9 @@ try:
                         cv2.line(imgCanvas, (xp, yp), point, drawColor, brushSize)
                     xp, yp = point
 
-                # Update undo/redo stacks
+                # Update undo/redo stacks (with size limit)
+                if len(undoStack) >= MAX_UNDO_STACK_SIZE:
+                    undoStack.pop(0)  # Remove oldest state
                 undoStack.append(save_state())
                 redoStack.clear()
 
@@ -634,11 +690,13 @@ try:
             key = cv2.waitKey(1) & 0xFF
             if keyboard_input.process_key_input(key):
                 # When text is confirmed or changed, save state
+                if len(undoStack) >= MAX_UNDO_STACK_SIZE:
+                    undoStack.pop(0)  # Remove oldest state
                 undoStack.append(save_state())
                 redoStack.clear()
         except KeyboardInterrupt:
             print("Program terminated by user")
-            os._exit(0)  # Force exit on KeyboardInterrupt too
+            on_close()
 
         # 8. Blend the drawing canvas with the camera feed
         # Create a mask from the canvas where there are drawings (non-black pixels)
@@ -700,6 +758,10 @@ try:
         # 12. Display the image
         cv2.imshow("Beyond The Brush", img)
 
+        # Periodic garbage collection
+        if frame_count % gc_interval == 0:
+            gc.collect()
+
         # Maintain 60 FPS
         elapsed_time = time.time() - start_time
         if elapsed_time < time_per_frame:
@@ -724,12 +786,13 @@ try:
             
 except KeyboardInterrupt:
     print("Program terminated by user")
+except Exception as e:
+    print(f"Unexpected error: {e}")
 finally:
     # Release resources
     on_close()
 
 def run_application(role=None):
-    
     try:
         pass
     except Exception as e:

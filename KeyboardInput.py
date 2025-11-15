@@ -1,5 +1,3 @@
-
-
 import cv2
 import numpy as np
 from collections import deque
@@ -11,32 +9,33 @@ class KeyboardInput:
         self.active = False
         self.cursor_visible = True
         self.cursor_timer = 0
-        self.cursor_blink_interval = 0.5  # seconds
-        self.text_objects = deque(maxlen=20)  # Stores all text objects
+        self.cursor_blink_interval = 0.5
+        self.text_objects = deque(maxlen=15)  # Reduced from 20 for memory
         self.dragging = False
         self.drag_object_index = -1
         self.drag_offset = (0, 0)
         self.default_font = cv2.FONT_HERSHEY_SIMPLEX
         self.default_scale = 1.0
         self.default_thickness = 2
-        self.default_color = (255, 255, 255)  # White
-        self.outline_color = (0, 0, 0)  # Black for outline
+        self.default_color = (255, 255, 255)
+        self.outline_color = (0, 0, 0)
         self.outline_thickness = 4
-        self.current_input_position = (640, 360)  # Center position
+        self.current_input_position = (640, 360)
         self.input_dragging = False
         self.input_drag_offset = (0, 0)
-        self.selected_object_index = -1  # Track selected text object
-        self.text_history = []  # To store text object states for undo/redo
+        self.selected_object_index = -1
+        
+        # MEMORY OPTIMIZATIONS:
+        self.text_history = deque(maxlen=8)  # Limited undo history
         self.history_index = -1
-
+        self.smooth_text = deque(maxlen=30)  # Limited animation buffer
+        
         self.last_key_time = time.time()
-        self.key_repeat_delay = 0.03  # Faster repeat rate
-        self.initial_delay = 0.2  # Shorter initial delay
+        self.key_repeat_delay = 0.03
+        self.initial_delay = 0.2
         self.last_key = None
-        self.smooth_text = []  # Buffer for smooth text rendering
-        self.text_fade_in = 1.0  # Text fade-in animation
-        self.animation_speed = 0.1  # Faster fade-in animation (reduced from 0.2)
-        self.char_delay = 0.01  # Shorter delay between character animations (reduced from 0.03)
+        self.animation_speed = 0.1
+        self.char_delay = 0.01
 
     def toggle_keyboard_mode(self):
         self.active = not self.active
@@ -46,6 +45,61 @@ class KeyboardInput:
             self.cursor_timer = 0
             # Create a new text object at center when toggling on
             self.current_input_position = (640, 360)
+
+    def save_state(self):
+        """Memory-optimized state saving"""
+        if self.history_index < len(self.text_history) - 1:
+            # Truncate future history if we're not at the end
+            while len(self.text_history) > self.history_index + 1:
+                self.text_history.pop()
+        
+        # Create minimal state copy
+        state = []
+        for obj in self.text_objects:
+            state.append({
+                'text': obj['text'],
+                'position': obj['position'],
+                'color': obj['color']
+                # Omit constant values to save memory
+            })
+        
+        self.text_history.append(state)
+        self.history_index = len(self.text_history) - 1
+
+    def restore_state(self, state):
+        """Restore from minimal state"""
+        self.text_objects.clear()
+        for obj_data in state:
+            self.text_objects.append({
+                'text': obj_data['text'],
+                'position': obj_data['position'],
+                'color': obj_data['color'],
+                'font': self.default_font,
+                'scale': self.default_scale,
+                'thickness': self.default_thickness,
+                'selected': False
+            })
+
+    def undo(self):
+        if self.history_index > 0:
+            self.history_index -= 1
+            self.restore_state(self.text_history[self.history_index])
+            return True
+        return False
+
+    def redo(self):
+        if self.history_index < len(self.text_history) - 1:
+            self.history_index += 1
+            self.restore_state(self.text_history[self.history_index])
+            return True
+        return False
+
+    def get_selected_index(self):
+        """Get the index of currently selected text object"""
+        for i, obj in enumerate(self.text_objects):
+            if obj.get('selected', False):
+                return i
+        return -1
 
     def process_key_input(self, key):
         if not self.active:
@@ -58,7 +112,6 @@ class KeyboardInput:
         if key == self.last_key and time_since_last_key < self.key_repeat_delay:
             return False
 
-        # Reset repeat timer if different key
         if key != self.last_key:
             self.last_key_time = current_time - self.initial_delay
             self.last_key = key
@@ -69,12 +122,12 @@ class KeyboardInput:
         
         if key == 13:  # Enter key
             if selected_index >= 0:
-                # Finish editing selected text
                 self.clear_selection()
                 self.text = ""
             else:
                 if self.text:
-                    # Add new text object at left side
+                    # Save state before adding new text
+                    self.save_state()
                     left_position = (50, self.current_input_position[1])
                     self.text_objects.append({
                         'text': self.text,
@@ -88,10 +141,12 @@ class KeyboardInput:
                     self.text = ""
                     self.current_input_position = (640, 360)
             return True
+            
         elif key == 8:  # Backspace
             if selected_index >= 0:
                 text = self.text_objects[selected_index]['text']
-                # Fast backspace when held
+                if text:  # Only save state if there's something to delete
+                    self.save_state()
                 chars_to_delete = 1
                 if time_since_last_key < self.key_repeat_delay:
                     chars_to_delete = min(3, len(text))
@@ -99,48 +154,41 @@ class KeyboardInput:
                 if not self.text_objects[selected_index]['text']:
                     self.delete_selected()
             else:
+                if self.text:  # Only save state if there's something to delete
+                    self.save_state()
                 chars_to_delete = 1
                 if time_since_last_key < self.key_repeat_delay:
                     chars_to_delete = min(3, len(self.text))
                 self.text = self.text[:-chars_to_delete]
             return True
-        elif 32 <= key <= 126:  # Printable ASCII characters
+            
+        elif 32 <= key <= 126:  # Printable characters
             if selected_index >= 0:
+                if not self.text_objects[selected_index]['text']:  # First character
+                    self.save_state()
                 self.text_objects[selected_index]['text'] += chr(key)
-                # Add to smooth text buffer with staggered timing
-                char_time = len(self.smooth_text) * self.char_delay
-                self.smooth_text.append({
-                    'char': chr(key),
-                    'alpha': 0,
-                    'scale': 0.8,  # Start slightly smaller
-                    'y_offset': 10,  # Start slightly below
-                    'time': char_time,
-                    'elapsed': 0,
-                    'target_pos': len(self.text_objects[selected_index]['text']) - 1
-                })
             else:
+                if not self.text:  # First character
+                    self.save_state()
                 self.text += chr(key)
-                # Add to smooth text buffer with staggered timing
-                char_time = len(self.smooth_text) * self.char_delay
-                self.smooth_text.append({
-                    'char': chr(key),
-                    'alpha': 0,
-                    'scale': 0.8,  # Start slightly smaller
-                    'y_offset': 10,  # Start slightly below
-                    'time': char_time,
-                    'elapsed': 0,
-                    'target_pos': len(self.text) - 1
-                })
+                
+            # Add to smooth text buffer with size limit
+            if len(self.smooth_text) >= 30:
+                self.smooth_text.popleft()  # Remove oldest if at limit
+                
+            char_time = len(self.smooth_text) * self.char_delay
+            self.smooth_text.append({
+                'char': chr(key),
+                'alpha': 0,
+                'scale': 0.8,
+                'y_offset': 10,
+                'time': char_time,
+                'elapsed': 0,
+                'target_pos': len(self.text) - 1 if selected_index < 0 else len(self.text_objects[selected_index]['text']) - 1
+            })
             return True
 
         return False
-
-    def get_selected_index(self):
-        """Get the index of currently selected text object"""
-        for i, obj in enumerate(self.text_objects):
-            if obj['selected']:
-                return i
-        return -1
 
     def add_text_object(self):
         if not self.text:
@@ -160,40 +208,17 @@ class KeyboardInput:
 
     def delete_selected(self):
         """Delete the currently selected text object"""
-        if self.drag_object_index >= 0:
-            # Remove the selected object
-            if 0 <= self.drag_object_index < len(self.text_objects):
-                del self.text_objects[self.drag_object_index]
+        selected_index = self.get_selected_index()
+        if selected_index >= 0:
+            self.save_state()
+            del self.text_objects[selected_index]
             self.drag_object_index = -1
-
-    def save_state(self):
-        """Save current text objects state for undo/redo"""
-        # Truncate history if we're not at the end
-        if self.history_index < len(self.text_history) - 1:
-            self.text_history = self.text_history[:self.history_index + 1]
-
-        # Save current state
-        self.text_history.append(list(self.text_objects))
-        self.history_index = len(self.text_history) - 1
-
-    def undo(self):
-        """Undo the last text operation"""
-        if self.history_index > 0:
-            self.history_index -= 1
-            self.text_objects = deque(list(self.text_history[self.history_index]), maxlen=20)
-            return True
-        return False
-
-    def redo(self):
-        """Redo the last undone text operation"""
-        if self.history_index < len(self.text_history) - 1:
-            self.history_index += 1
-            self.text_objects = deque(list(self.text_history[self.history_index]), maxlen=20)
-            return True
-        return False
 
     def update(self, dt):
         if not self.active:
+            # Clean up animations when inactive
+            if self.smooth_text:
+                self.smooth_text.clear()
             return
 
         # Update cursor blink
@@ -202,26 +227,25 @@ class KeyboardInput:
             self.cursor_timer = 0
             self.cursor_visible = not self.cursor_visible
 
-        # Update smooth text animations
+        # Update smooth text animations with cleanup
         current_time = time.time()
-        for char_data in self.smooth_text[:]:
-            # Update elapsed time
+        completed_animations = []
+        
+        for char_data in self.smooth_text:
             char_data['elapsed'] += dt
-            
-            # Calculate animation progress (0.0 to 1.0)
             progress = min(1.0, char_data['elapsed'] / self.animation_speed)
             
-            # Use linear easing for faster response
-            progress = progress  # Linear easing (faster than cubic)
-            
-            # Update animation properties
-            char_data['alpha'] = progress
-            char_data['scale'] = 0.9 + (0.1 * progress)  # Start larger (0.9) and scale less (to 1.0)
-            char_data['y_offset'] = 5 * (1 - progress)  # Move up from 5px to 0 (reduced from 10px)
-            
-            # Remove completed animations
             if progress >= 1.0:
-                self.smooth_text.remove(char_data)
+                completed_animations.append(char_data)
+            else:
+                char_data['alpha'] = progress
+                char_data['scale'] = 0.9 + (0.1 * progress)
+                char_data['y_offset'] = 5 * (1 - progress)
+        
+        # Remove completed animations
+        for completed in completed_animations:
+            if completed in self.smooth_text:
+                self.smooth_text.remove(completed)
 
     def draw(self, img):
         # Draw all existing text objects
@@ -248,7 +272,7 @@ class KeyboardInput:
             )
 
             # Draw selection rectangle if selected
-            if obj['selected']:
+            if obj.get('selected', False):
                 text_size = cv2.getTextSize(
                     obj['text'],
                     obj['font'],
@@ -295,7 +319,7 @@ class KeyboardInput:
                 cv2.putText(img, char_data['char'], char_pos, 
                           self.default_font, font_scale, 
                           color, self.default_thickness, 
-                          cv2.LINE_AA)  # Anti-aliased text
+                          cv2.LINE_AA)
 
             # Draw main text
             cv2.putText(img, self.text, self.current_input_position,
@@ -340,8 +364,6 @@ class KeyboardInput:
 
             if (text_left <= x <= text_right and
                     text_top <= y <= text_bottom):
-                # Double click detection (you may need to implement this)
-                # For now, single click will make text editable
                 # Deselect all other objects
                 for other_obj in self.text_objects:
                     other_obj['selected'] = False
@@ -378,9 +400,7 @@ class KeyboardInput:
                 return True
 
         # If clicking elsewhere, deselect all
-        for obj in self.text_objects:
-            obj['selected'] = False
-        self.drag_object_index = -1
+        self.clear_selection()
         return False
 
     def update_drag(self, x, y):
@@ -392,9 +412,10 @@ class KeyboardInput:
             )
         elif self.dragging and self.drag_object_index >= 0:
             # Update position of dragged text object
-            obj = self.text_objects[self.drag_object_index]
-            new_pos = (x - self.drag_offset[0], y - self.drag_offset[1])
-            self.text_objects[self.drag_object_index]['position'] = new_pos
+            if 0 <= self.drag_object_index < len(self.text_objects):
+                obj = self.text_objects[self.drag_object_index]
+                new_pos = (x - self.drag_offset[0], y - self.drag_offset[1])
+                self.text_objects[self.drag_object_index]['position'] = new_pos
 
     def end_drag(self):
         self.input_dragging = False
@@ -406,3 +427,43 @@ class KeyboardInput:
         for obj in self.text_objects:
             obj['selected'] = False
         self.drag_object_index = -1
+
+    def cleanup(self):
+        """Explicit cleanup method to prevent memory leaks"""
+        self.text_objects.clear()
+        self.text_history.clear()
+        self.smooth_text.clear()
+        self.text = ""
+        self.active = False
+        self.cursor_visible = True
+        self.cursor_timer = 0
+        self.dragging = False
+        self.drag_object_index = -1
+        self.input_dragging = False
+        self.selected_object_index = -1
+        self.current_input_position = (640, 360)
+
+    def get_state_for_save(self):
+        """Get minimal state for canvas saving"""
+        return [{
+            'text': obj['text'],
+            'position': obj['position'],
+            'color': obj['color'],
+            'font': obj['font'],
+            'scale': obj['scale'],
+            'thickness': obj['thickness']
+        } for obj in self.text_objects]
+
+    def restore_state_from_save(self, saved_state):
+        """Restore state from saved canvas data"""
+        self.text_objects.clear()
+        for obj_data in saved_state:
+            self.text_objects.append({
+                'text': obj_data['text'],
+                'position': obj_data['position'],
+                'color': obj_data['color'],
+                'font': obj_data.get('font', self.default_font),
+                'scale': obj_data.get('scale', self.default_scale),
+                'thickness': obj_data.get('thickness', self.default_thickness),
+                'selected': False
+            })
