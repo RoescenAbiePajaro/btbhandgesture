@@ -274,45 +274,12 @@ size_adjuster.set_size_change_callback(handle_size_change)
 
 # Main Loop
 try:
-    # Create window in normal mode
+    # Create window first and set close callback
     cv2.namedWindow("Beyond The Brush", cv2.WINDOW_NORMAL)
-    
-    # Set the desired application size (16:9 aspect ratio)
-    app_width = 1280
-    app_height = 720
-    
-    # Get the screen resolution
-    try:
-        import ctypes
-        user32 = ctypes.windll.user32
-        screen_width = user32.GetSystemMetrics(0)
-        screen_height = user32.GetSystemMetrics(1)
-        
-        # Calculate scaling factor to fit the screen while maintaining aspect ratio
-        width_scale = screen_width / app_width
-        height_scale = screen_height / app_height
-        scale = min(width_scale, height_scale) * 0.95  # 95% of screen to ensure window controls are visible
-        
-        # Calculate new dimensions
-        new_width = int(app_width * scale)
-        new_height = int(app_height * scale)
-        
-        # Center the window
-        pos_x = (screen_width - new_width) // 2
-        pos_y = (screen_height - new_height - 50)  # Slightly above bottom to account for taskbar
-        
-        # Set window size and position
-        cv2.resizeWindow("Beyond The Brush", new_width, new_height)
-        cv2.moveWindow("Beyond The Brush", pos_x, pos_y)
-        
-    except Exception as e:
-        print(f"Error setting window size: {e}")
-        # Fallback to default size if there's an error
-        cv2.resizeWindow("Beyond The Brush", app_width, app_height)
-    
-    # Show window briefly to apply settings
-    cv2.imshow("Beyond The Brush", np.zeros((100, 100, 3), np.uint8))
-    cv2.waitKey(1)
+    cv2.resizeWindow("Beyond The Brush", 1280, 720)
+    cv2.setWindowProperty("Beyond The Brush", cv2.WND_PROP_TOPMOST, 0)
+    cv2.setWindowProperty("Beyond The Brush", cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_NORMAL)
+    cv2.setWindowProperty("Beyond The Brush", cv2.WND_PROP_ASPECT_RATIO, cv2.WINDOW_KEEPRATIO)
     
     while running:
         start_time = time.time()

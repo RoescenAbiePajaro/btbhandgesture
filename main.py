@@ -39,7 +39,7 @@ class Launcher:
         
         # Configure window properties
         self.root.state('zoomed')  # Maximize the window
-        self.root.minsize(1280, 720)  # Set minimum size to match initial window size
+        self.root.minsize(1024, 576)  # Set minimum size to maintain aspect ratio
         
         # Disable minimize button while keeping maximize and close buttons
         self.root.resizable(True, True)  # Allow resizing
