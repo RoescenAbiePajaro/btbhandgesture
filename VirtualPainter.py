@@ -331,6 +331,20 @@ try:
     cv2.setWindowProperty("Beyond The Brush", cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_NORMAL)
     cv2.setWindowProperty("Beyond The Brush", cv2.WND_PROP_ASPECT_RATIO, cv2.WINDOW_KEEPRATIO)
     
+    # Set window icon
+    try:
+        import ctypes
+        import sys
+        if sys.platform.startswith('win'):
+            icon_path = os.path.join(basePath, 'icon', 'app.ico')
+            if os.path.exists(icon_path):
+                hwnd = ctypes.windll.user32.FindWindowW(None, "Beyond The Brush")
+                ctypes.windll.shell32.Shell_NotifyIcon(0, 0)  # Required for Windows to refresh the icon
+                ctypes.windll.shell32.Shell_NotifyIcon(1, 0)  # Required for Windows to refresh the icon
+                ctypes.windll.user32.SendMessageW(hwnd, 0x80, 0, ctypes.windll.user32.LoadImageW(0, icon_path, 1, 0, 0, 0x10 | 0x40))
+    except Exception as e:
+        print(f"Could not set window icon: {e}")
+    
     frame_count = 0
     gc_interval = 100  # Run garbage collection every 100 frames
     
