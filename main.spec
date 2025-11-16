@@ -1,39 +1,52 @@
 # -*- mode: python ; coding: utf-8 -*-
 
-from PyInstaller.utils.hooks import collect_data_files
 import os
+from PyInstaller.utils.hooks import collect_data_files
 
-# Collect MediaPipe model and asset files
+# ----------------------------------------------------------------------
+# 1. Collect every file you need (models, icons, headers, guides …)
+# ----------------------------------------------------------------------
 mediapipe_datas = collect_data_files(
     'mediapipe',
     includes=['**/*.binarypb', '**/*.tflite', '**/*.json', '**/*.txt']
 )
 
-# Add header and guide folders as separate data entries
-header_files = [(os.path.join('header', f), 'header') for f in os.listdir('header')] if os.path.exists('header') else []
-guide_files = [(os.path.join('guide', f), 'guide') for f in os.listdir('guide')] if os.path.exists('guide') else []
+def _collect_folder(folder):
+    """Return a list of (src, dest) tuples for a folder, preserving its name."""
+    if not os.path.isdir(folder):
+        return []
+    return [(os.path.join(folder, f), folder) for f in os.listdir(folder)]
 
-# Make sure icon files are properly included
-icon_files = [(os.path.join('icon', f), 'icon') for f in os.listdir('icon')] if os.path.exists('icon') else []
+header_files = _collect_folder('header')
+guide_files  = _collect_folder('guide')
+icon_files   = _collect_folder('icon')
 
-
+# ----------------------------------------------------------------------
+# 2. Analysis – ONEFILE mode + all datas
+# ----------------------------------------------------------------------
 a = Analysis(
     ['main.py'],
     pathex=[],
     binaries=[],
-    datas=mediapipe_datas + header_files + guide_files + icon_files +
-          [('VirtualPainter.py', '.'), 
-           ('HandTrackingModule.py', '.'),
-           ('KeyboardInput.py', '.'),
-           ('SizeAdjustmentWindow.py', '.'),
-           ('App.py', '.'),
-           ('track_click.py', '.'),
-           ('icon/icons.png', 'icon'),
-           ('icon/logo.png', 'icon'),
-           ('size_config.json', '.'), 
-           ],  # Added icons.png explicitly
-
-    hiddenimports=['VirtualPainter', 'HandTrackingModule', 'KeyboardInput', 'SizeAdjustmentWindow', 'App', 'track_click', 'cv2', 'numpy', 'PIL', 'tkinter'],
+    datas=(
+        mediapipe_datas +
+        header_files + guide_files + icon_files +
+        [
+            ('VirtualPainter.py',        '.'),
+            ('HandTrackingModule.py',    '.'),
+            ('KeyboardInput.py',         '.'),
+            ('SizeAdjustmentWindow.py',  '.'),
+            ('track_click.py',           '.'),
+            ('icon/icons.png',           'icon'),
+            ('icon/logo.png',            'icon'),
+            ('size_config.json',         '.'),
+        ]
+    ),
+    hiddenimports=[
+        'VirtualPainter', 'HandTrackingModule', 'KeyboardInput',
+        'SizeAdjustmentWindow', 'track_click',
+        'cv2', 'numpy', 'PIL', 'tkinter'
+    ],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
@@ -42,34 +55,42 @@ a = Analysis(
     optimize=0,
 )
 
+# ----------------------------------------------------------------------
+# 3. Build a **single executable** (no external _internal folder)
+# ----------------------------------------------------------------------
 pyz = PYZ(a.pure)
 
 exe = EXE(
     pyz,
     a.scripts,
-    [],
-    exclude_binaries=True,
+    a.binaries,
+    a.datas,
+    [],                     # no extra options here
     name='BeyondTheBrush',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
     upx=True,
-    console=False,  # set to True if you want console logs
+    console=False,          # set True only for debugging
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon='icon/app.ico',  # Only specify one icon here
+    icon='icon/app.ico',
+    # ---- ONEFILE is the key ------------------------------------------------
+    onefile=True,           # <── everything packed into ONE .exe
 )
 
-coll = COLLECT(
-    exe,
-    a.binaries,
-    a.datas,
-    strip=False,
-    upx=True,
-    upx_exclude=[],
-    name='BeyondTheBrush',
-    icon='icon/app.ico',  # Only specify one icon here
-)
+# ----------------------------------------------------------------------
+# 4. (Optional) If you ever need COLLECT again, keep the same icon
+# ----------------------------------------------------------------------
+# coll = COLLECT(
+#     exe,
+#     a.binaries,
+#     a.datas,
+#     strip=False,
+#     upx=True,
+#     name='BeyondTheBrush',
+#     icon='icon/app.ico',
+# )

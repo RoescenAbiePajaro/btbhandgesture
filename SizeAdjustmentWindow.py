@@ -114,7 +114,7 @@ class SizeAdjustmentWindow:
         # Button to capture entire screen (person + drawing)
         self.capture_all_btn = tk.Button(
             screenshot_frame,
-            text="Capture Person + Drawing",
+            text="Take Screenshot",
             command=self.capture_screen,
             bg='#4CAF50',
             fg='white',

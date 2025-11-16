@@ -333,7 +333,6 @@ try:
     cv2.resizeWindow("Beyond The Brush", 1280, 720)
     cv2.setWindowProperty("Beyond The Brush", cv2.WND_PROP_TOPMOST, 0)
     cv2.setWindowProperty("Beyond The Brush", cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_NORMAL)
-    cv2.setWindowProperty("Beyond The Brush", cv2.WND_PROP_ASPECT_RATIO, cv2.WINDOW_KEEPRATIO)
     
     # Set window icon
     try:
