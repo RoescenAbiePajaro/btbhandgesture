@@ -169,32 +169,62 @@ def show_transient_notification(message, duration=1.0):
 
 def cleanup_resources():
     """Clean up resources to prevent memory leaks"""
-    global cap, detector, keyboard_input, size_adjuster
+    global cap, detector, keyboard_input, size_adjuster, overlayList, guideList, undoStack, redoStack
     
     print("Cleaning up resources...")
     
-    # Release camera
-    if 'cap' in globals() and cap is not None:
-        cap.release()
+    # Release camera first
+    try:
+        if 'cap' in globals() and cap is not None:
+            cap.release()
+            cap = None
+    except Exception as e:
+        print(f"Error releasing camera: {e}")
     
     # Close all OpenCV windows
-    cv2.destroyAllWindows()
+    try:
+        cv2.destroyAllWindows()
+    except Exception as e:
+        print(f"Error destroying OpenCV windows: {e}")
     
     # Clean up tkinter windows
     try:
         if 'size_adjuster' in globals() and size_adjuster is not None:
-            size_adjuster.window.destroy()
-    except:
-        pass
+            if hasattr(size_adjuster, 'window') and size_adjuster.window:
+                try:
+                    size_adjuster.window.after(100, size_adjuster.window.destroy())
+                except:
+                    pass
+            size_adjuster = None
+    except Exception as e:
+        print(f"Error cleaning up tkinter windows: {e}")
+    
+    # Clean up keyboard input
+    try:
+        if 'keyboard_input' in globals() and keyboard_input is not None:
+            if hasattr(keyboard_input, 'root'):
+                try:
+                    keyboard_input.root.after(100, keyboard_input.root.destroy())
+                except:
+                    pass
+            keyboard_input = None
+    except Exception as e:
+        print(f"Error cleaning up keyboard input: {e}")
     
     # Clear large data structures
-    global overlayList, guideList, undoStack, redoStack
-    overlayList.clear()
-    guideList.clear()
-    undoStack.clear()
-    redoStack.clear()
+    try:
+        if 'overlayList' in globals():
+            overlayList.clear()
+        if 'guideList' in globals():
+            guideList.clear()
+        if 'undoStack' in globals():
+            undoStack.clear()
+        if 'redoStack' in globals():
+            redoStack.clear()
+    except Exception as e:
+        print(f"Error clearing data structures: {e}")
     
-    # Force garbage collection
+    # Force garbage collection and cleanup
     gc.collect()
 
 def btb_saved_canvas_async():
@@ -210,8 +240,13 @@ def btb_saved_canvas_async():
         timestamp = time.strftime("%Y%m%d_%H%M%S")
         save_path = os.path.join(save_folder, f"btb_saved_canvas_{timestamp}.png")
 
-        # Create a copy of the canvas to draw text on
-        saved_img = imgCanvas.copy()
+        # Create a white canvas with the same size as imgCanvas
+        saved_img = np.ones_like(imgCanvas) * 255  # White background (255, 255, 255)
+        
+        # Copy the original content (which will be black or drawn colors) onto the white background
+        # This will make the background white while keeping all drawn content as is
+        mask = imgCanvas.any(axis=2)  # Create a mask of non-black pixels
+        saved_img[mask] = imgCanvas[mask]  # Only copy non-black pixels
 
         # Draw all text objects onto the saved image
         for obj in keyboard_input.text_objects:
@@ -286,19 +321,33 @@ def interpolate_points(x1, y1, x2, y2, num_points=10):
         points.append((x, y))
     return points
 
-# Add this function before the main loop
-closing = False
+# Global flag to track if we're in the process of closing
+is_closing = False
+
 def on_close():
-    global running, closing
-    if closing:
+    global running, is_closing
+    if is_closing:  # Prevent multiple cleanup attempts
         return
-    closing = True
+        
+    is_closing = True
     running = False
+    
     try:
+        print("Closing application, please wait...")
         cleanup_resources()
     except Exception as e:
         print(f"Error during close: {e}")
     finally:
+        # Force exit after a short delay to ensure cleanup completes
+        import threading
+        def force_exit():
+            import os
+            import time
+            time.sleep(1)  # Give some time for cleanup to complete
+            os._exit(0)
+            
+        # Start the force exit in a separate thread to avoid blocking
+        threading.Thread(target=force_exit, daemon=True).start()
         sys.exit(0)
 
 # Callback function for window close button
@@ -808,12 +857,16 @@ try:
             break
             
 except KeyboardInterrupt:
-    print("Program terminated by user")
-except Exception as e:
-    print(f"Unexpected error: {e}")
-finally:
-    # Release resources
+    print("\nProgram terminated by user")
     on_close()
+except Exception as e:
+    print(f"\nUnexpected error: {e}")
+    on_close()
+finally:
+    try:
+        on_close()
+    except:
+        sys.exit(1)
 
 def run_application(role=None):
     try:
