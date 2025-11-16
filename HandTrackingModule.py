@@ -5,8 +5,41 @@ import time
 import os
 import gc
 
-class handDetector:
-    def __init__(self, mode=False, maxHands=2, detectionCon=0.3, trackCon=0.3):
+class VelocityFilter:
+    def __init__(self, smoothing=0.7):
+        self.smoothing = smoothing
+        self.prev_x = None
+        self.prev_y = None
+        self.velocity_x = 0
+        self.velocity_y = 0
+        
+    def update(self, x, y):
+        if self.prev_x is None:
+            self.prev_x = x
+            self.prev_y = y
+            return x, y
+            
+        # Calculate velocity
+        current_velocity_x = x - self.prev_x
+        current_velocity_y = y - self.prev_y
+        
+        # Smooth velocity
+        self.velocity_x = (self.smoothing * self.velocity_x + 
+                          (1 - self.smoothing) * current_velocity_x)
+        self.velocity_y = (self.smoothing * self.velocity_y + 
+                          (1 - self.smoothing) * current_velocity_y)
+        
+        # Apply velocity-based prediction
+        predicted_x = x + self.velocity_x * 0.5  # Reduced prediction factor
+        predicted_y = y + self.velocity_y * 0.5
+        
+        self.prev_x = x
+        self.prev_y = y
+        
+        return predicted_x, predicted_y
+
+class HandDetector:
+    def __init__(self, mode=False, maxHands=2, detectionCon=0.5, trackCon=0.5):
         # MEMORY OPTIMIZATION: Initialize variables first
         self.results = None
         self.lmList = []
@@ -15,6 +48,11 @@ class handDetector:
         self.detectionCon = detectionCon
         self.trackCon = trackCon
 
+        # SMOOTHING: Initialize smoothing filters
+        self.smoothing_factor = 0.7  # Good balance between smoothness and responsiveness
+        self.prev_landmarks = None
+        self.velocity_filters = [VelocityFilter(0.7) for _ in range(21)]  # 21 landmarks per hand
+        
         # MEMORY OPTIMIZATION: Initialize MediaPipe with resource management
         self.mpHands = mp.solutions.hands
         self.hands = self.mpHands.Hands(
@@ -26,12 +64,49 @@ class handDetector:
         )
         
         self.mpDraw = mp.solutions.drawing_utils
-        self.mpDrawStyles = mp.solutions.drawing_styles
         self.tipIds = [4, 8, 12, 16, 20]
         
         # MEMORY OPTIMIZATION: Reusable variables to avoid repeated allocations
         self._img_shape = None
         self._landmark_cache = []
+
+    def smooth_landmarks(self, current_lmList):
+        """Apply smoothing to reduce jitter"""
+        if not current_lmList or len(current_lmList) < 21:
+            return current_lmList
+            
+        if self.prev_landmarks is None:
+            self.prev_landmarks = current_lmList
+            return current_lmList
+        
+        smoothed_lmList = []
+        try:
+            for i, landmark in enumerate(current_lmList):
+                if i >= len(self.velocity_filters):
+                    break
+                    
+                curr_id, curr_x, curr_y = landmark
+                
+                # Use velocity-based filtering for better smoothness
+                smooth_x, smooth_y = self.velocity_filters[i].update(curr_x, curr_y)
+                
+                # Additional exponential smoothing as backup
+                if i < len(self.prev_landmarks):
+                    prev_x, prev_y = self.prev_landmarks[i][1], self.prev_landmarks[i][2]
+                    final_x = int(self.smoothing_factor * smooth_x + (1 - self.smoothing_factor) * prev_x)
+                    final_y = int(self.smoothing_factor * smooth_y + (1 - self.smoothing_factor) * prev_y)
+                else:
+                    final_x, final_y = int(smooth_x), int(smooth_y)
+                
+                smoothed_lmList.append([curr_id, final_x, final_y])
+                
+        except Exception as e:
+            # Fallback to original landmarks if smoothing fails
+            print(f"Smoothing error: {e}")
+            return current_lmList
+        
+        self.prev_landmarks = smoothed_lmList
+        return smoothed_lmList
 
     def findHands(self, img, draw=True):
         """Detect hands in image with memory optimization"""
@@ -77,7 +152,7 @@ class handDetector:
         return img
 
     def findPosition(self, img, handNo=0, draw=True):
-        """Find hand landmark positions with memory optimization"""
+        """Find hand landmark positions with memory optimization and smoothing"""
         self.lmList = []  # Clear previous list
         
         if img is None:
@@ -96,14 +171,21 @@ class handDetector:
                 h, w, c = self._img_shape
                 
                 # MEMORY OPTIMIZATION: Pre-allocate list size
-                self.lmList = [None] * len(myHand.landmark)
+                raw_lmList = [None] * len(myHand.landmark)
                 
                 for id, lm in enumerate(myHand.landmark):
                     cx, cy = int(lm.x * w), int(lm.y * h)
-                    self.lmList[id] = [id, cx, cy]
+                    raw_lmList[id] = [id, cx, cy]
+                
+                # Apply smoothing to reduce jitter
+                self.lmList = self.smooth_landmarks(raw_lmList)
                     
-                    if draw and id in self.tipIds:  # Only draw fingertips for performance
-                        cv2.circle(img, (cx, cy), 4, (255, 0, 255), cv2.FILLED)
+                if draw:
+                    # Only draw fingertips for performance
+                    for id, cx, cy in self.lmList:
+                        if id in self.tipIds:
+                            cv2.circle(img, (cx, cy), 6, (255, 0, 255), cv2.FILLED)
+                            cv2.circle(img, (cx, cy), 8, (255, 255, 255), 2)
                         
             except (IndexError, AttributeError) as e:
                 # Silent fail for hand detection errors
@@ -122,7 +204,8 @@ class handDetector:
 
         try:
             # Thumb - simplified logic
-            if len(self.lmList) > 4 and self.lmList[self.tipIds[0]][1] > self.lmList[self.tipIds[0] - 1][1]:
+            if (len(self.lmList) > 4 and 
+                self.lmList[self.tipIds[0]][1] > self.lmList[self.tipIds[0] - 1][1]):
                 fingers[0] = 1
 
             # Four fingers - optimized comparison
@@ -143,6 +226,15 @@ class handDetector:
             return len(self.results.multi_hand_landmarks)
         return 0
 
+    def reset_smoothing(self):
+        """Reset smoothing filters - call this when hand is lost"""
+        self.prev_landmarks = None
+        for filter in self.velocity_filters:
+            filter.prev_x = None
+            filter.prev_y = None
+            filter.velocity_x = 0
+            filter.velocity_y = 0
+
     def cleanup(self):
         """Explicit cleanup to prevent memory leaks"""
         try:
@@ -150,6 +242,9 @@ class handDetector:
             self.lmList.clear()
             if hasattr(self, '_landmark_cache'):
                 self._landmark_cache.clear()
+            
+            # Reset smoothing
+            self.reset_smoothing()
                 
             # Clear results
             self.results = None
@@ -172,7 +267,7 @@ class handDetector:
 
 
 def main():
-    """Test function with memory optimization"""
+    """Test function with memory optimization and smoothing"""
     pTime = 0
     cap = None
     detector = None
@@ -189,7 +284,8 @@ def main():
         cap.set(cv2.CAP_PROP_FPS, 30)
         cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
         
-        detector = handDetector()
+        # Use optimized detector with smoothing
+        detector = HandDetector(detectionCon=0.7, trackCon=0.5)
         frame_count = 0
         
         while True:
@@ -198,27 +294,28 @@ def main():
                 print("Failed to capture frame")
                 continue
 
-            # MEMORY OPTIMIZATION: Skip every other frame for testing
-            frame_count += 1
-            if frame_count % 2 == 0:
-                continue
-
+            # Process every frame for better tracking
             img = detector.findHands(img)
-            lmList = detector.findPosition(img, draw=False)  # Disable drawing for performance
+            lmList = detector.findPosition(img, draw=True)
             
-            if lmList and len(lmList) > 4:
-                print(f"Index finger: {lmList[8]}")  # Print index finger tip
+            if lmList and len(lmList) > 8:
+                # Display smoothed coordinates
+                smoothed_x, smoothed_y = lmList[8][1], lmList[8][2]
+                cv2.putText(img, f"Smoothed: ({smoothed_x}, {smoothed_y})", 
+                           (10, 120), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
 
             # Calculate FPS
             cTime = time.time()
             fps = 1 / (cTime - pTime) if (cTime - pTime) > 0 else 0
             pTime = cTime
 
-            # Display FPS
+            # Display FPS and smoothing info
             cv2.putText(img, f"FPS: {int(fps)}", (10, 30), 
                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 0, 255), 2)
+            cv2.putText(img, f"Smoothing: {detector.smoothing_factor}", (10, 60), 
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 0), 2)
 
-            cv2.imshow("Hand Tracking", img)
+            cv2.imshow("Hand Tracking - Smoothed", img)
             
             # Exit on 'q' press
             if cv2.waitKey(1) & 0xFF == ord('q'):
@@ -227,6 +324,8 @@ def main():
             # Periodic garbage collection
             if frame_count % 100 == 0:
                 gc.collect()
+                frame_count = 0
+            frame_count += 1
 
     except KeyboardInterrupt:
         print("Program interrupted by user")

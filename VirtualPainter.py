@@ -120,8 +120,12 @@ except Exception as e:
     print(f"Error initializing camera: {e}")
     exit(1)
 
-# Assigning Detector
-detector = htm.handDetector(detectionCon=0.85)
+# Assigning Detector with optimized parameters for stable tracking
+detector = htm.HandDetector(
+    detectionCon=0.7,    # Balanced detection confidence
+    trackCon=0.5,        # Higher tracking confidence  
+    maxHands=1           # Track only one hand for stability
+)
 
 # Previous points
 xp, yp = 0, 0
@@ -413,9 +417,13 @@ try:
         # Flip the image horizontally for a mirror effect
         img = cv2.flip(img, 1)
 
-        # 2. Find Hand Landmarks
+        # 2. Find Hand Landmarks with smoothing
         img = detector.findHands(img, draw=False)
         lmList = detector.findPosition(img, draw=False)
+        
+        # Reset smoothing if no hand detected to prevent stale data
+        if not lmList or len(lmList) < 21:
+            detector.reset_smoothing()
 
         # Draw black outline (thicker)
         cv2.putText(img, "Selection Mode - Two Fingers Up", (850, 150),
