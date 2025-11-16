@@ -301,6 +301,10 @@ def on_close():
     finally:
         sys.exit(0)
 
+# Callback function for window close button
+def on_window_close(event=None):
+    on_close()
+
 # Add these variables before the main loop
 running = True
 last_save_time = 0
@@ -788,8 +792,14 @@ try:
             # Tkinter window was closed
             break
 
-        # Check if window should close
-        if cv2.getWindowProperty("Beyond The Brush", cv2.WND_PROP_VISIBLE) < 1:
+        # Check if window should close (immediate response to close button)
+        try:
+            window_visible = cv2.getWindowProperty("Beyond The Brush", cv2.WND_PROP_VISIBLE)
+            if window_visible < 1:
+                on_close()
+                break
+        except cv2.error:
+            # Window was closed
             on_close()
             break
             
