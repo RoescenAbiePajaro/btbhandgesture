@@ -417,6 +417,14 @@ try:
     while running:
         start_time = time.time()
         frame_count += 1
+        
+        # Garbage collection with different intervals based on keyboard activity
+        if keyboard_input.active:
+            gc_interval = 300  # less aggressive when typing
+        else:
+            gc_interval = 100
+        if frame_count % gc_interval == 0:
+            gc.collect()
 
         # 1. Import Image
         success, img = cap.read()
