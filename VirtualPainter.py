@@ -42,7 +42,7 @@ else:
     basePath = os.path.dirname(os.path.abspath(__file__))
 
 #####################################################################
-# Load header images with memory optimization
+# Load header images with CORRECT SIZE (1280x78)
 folderPath = os.path.join(basePath, 'header')
 if os.path.exists(folderPath) and os.path.isdir(folderPath):
     try:
@@ -51,8 +51,8 @@ if os.path.exists(folderPath) and os.path.isdir(folderPath):
             img_path = os.path.join(folderPath, imPath)
             img = cv2.imread(img_path)
             if img is not None:
-                # Resize images to consistent size to save memory
-                img = cv2.resize(img, (1280, 125))
+                # FIXED: Resize images to CORRECT header size (1280x78)
+                img = cv2.resize(img, (1280, 78))
                 overlayList.append(img)
             else:
                 print(f"Warning: Failed to load header image: {imPath}")
@@ -73,8 +73,8 @@ if os.path.exists(folderPath) and os.path.isdir(folderPath):
             img_path = os.path.join(folderPath, imPath)
             img = cv2.imread(img_path)
             if img is not None:
-                # Resize guide images to fit below header (1280x595)
-                img = cv2.resize(img, (1280, 595))
+                # Resize guide images to fit below header (1280x642)
+                img = cv2.resize(img, (1280, 642))
                 guideList.append(img)
             else:
                 print(f"Warning: Failed to load guide image: {imPath}")
@@ -254,8 +254,8 @@ def btb_saved_canvas_async():
 
         # Draw all text objects onto the saved image
         for obj in keyboard_input.text_objects:
-            # Only process text objects that are below the header (y > 125)
-            if obj['position'][1] > 125:  # 125 is the header height
+            # Only process text objects that are below the header (y > 78)
+            if obj['position'][1] > 78:  # 78 is the NEW header height
                 # Draw outline (thicker)
                 cv2.putText(
                     saved_img,
@@ -277,18 +277,28 @@ def btb_saved_canvas_async():
                     obj['thickness']
                 )
 
-        # Crop the image to exclude the header (first 125 pixels in height)
-        # Check if the image is tall enough to crop (should always be true in normal operation)
-        if saved_img.shape[0] > 125:  # If height > 125
-            cropped_img = saved_img[125:, :]  # Take all rows from 125 to end, all columns
-        else:
-            cropped_img = saved_img  # Fallback to original if too small
-
-        # Save the cropped image
-        success = cv2.imwrite(save_path, cropped_img)
+        # Define target dimensions (1280x660) and header height (78px)
+        target_width = 1280
+        target_height = 660
+        header_height = 78
+        
+        # Create a new white image with the target dimensions
+        final_img = np.ones((target_height, target_width, 3), dtype=np.uint8) * 255
+        
+        # Calculate the region to copy from the original image
+        # Start from header_height (78px) and take up to target_height (660px)
+        # Ensure we don't go out of bounds
+        src_y_start = header_height
+        src_height = min(target_height, saved_img.shape[0] - header_height)
+        
+        # Copy the content from the original image to the final image
+        final_img[0:src_height, 0:target_width] = saved_img[src_y_start:src_y_start+src_height, 0:target_width]
+        
+        # Save the final image with exact 1280x660 dimensions
+        success = cv2.imwrite(save_path, final_img)
         
         # Clean up temporary images
-        del saved_img, cropped_img
+        del saved_img, final_img
         
         if success:
             # Track the canvas save action
@@ -425,12 +435,15 @@ try:
         if not lmList or len(lmList) < 21:
             detector.reset_smoothing()
 
+        # Position notification below header (header is 78px tall)
+        notification_y = 110  # 78 (header) + 32 (padding)
+        
         # Draw black outline (thicker)
-        cv2.putText(img, "Selection Mode - Two Fingers Up", (850, 150),
+        cv2.putText(img, "Selection Mode - Two Fingers Up", (850, notification_y),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 0), 4)  # Black with thickness 4
 
         # Draw main white text (thinner)
-        cv2.putText(img, "Selection Mode - Two Fingers Up", (850, 150),
+        cv2.putText(img, "Selection Mode - Two Fingers Up", (850, notification_y),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)  # White with thickness 2
 
         # Check if lmList is empty or doesn't have enough landmarks before proceeding
@@ -448,7 +461,7 @@ try:
                 swipe_start_x = None  # Reset swipe tracking when in selection mode
 
                 # Detecting selection based on X coordinate
-                if y1 < 125:  # Ensure the selection is within the header area
+                if y1 < 78:  # FIXED: Ensure the selection is within the NEW header area (78 pixels)
                     if 0 < x1 < 128:  # Save
                         current_time = time.time()
                         if current_time - last_save_time > SAVE_COOLDOWN:
@@ -463,10 +476,10 @@ try:
                             header = overlayList[2]
                         drawColor = (255, 0, 255)  # Pink
                         # Draw black outline (thicker)
-                        cv2.putText(img, "Pink brush selected", (50, 150),
+                        cv2.putText(img, "Pink brush selected", (50, notification_y),
                                     cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 0), 4)
                         # Draw main white text (thinner)
-                        cv2.putText(img, "Pink brush selected", (50, 150),
+                        cv2.putText(img, "Pink brush selected", (50, notification_y),
                                     cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
                         show_guide = False
                         keyboard_input.active = False  # Close keyboard input if open
@@ -476,10 +489,10 @@ try:
                             header = overlayList[3]
                         drawColor = (255, 0, 0)  # Blue
                         # Draw black outline (thicker)
-                        cv2.putText(img, "Blue brush selected", (50, 150),
+                        cv2.putText(img, "Blue brush selected", (50, notification_y),
                                     cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 0), 4)
                         # Draw main white text (thinner)
-                        cv2.putText(img, "Blue brush selected", (50, 150),
+                        cv2.putText(img, "Blue brush selected", (50, notification_y),
                                     cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
                         show_guide = False
                         keyboard_input.active = False  # Close keyboard input if open
@@ -489,10 +502,10 @@ try:
                             header = overlayList[4]
                         drawColor = (0, 255, 0)  # Green
                         # Draw black outline (thicker)
-                        cv2.putText(img, "Green brush selected", (50, 150),
+                        cv2.putText(img, "Green brush selected", (50, notification_y),
                                     cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 0), 4)
                         # Draw main white text (thinner)
-                        cv2.putText(img, "Green brush selected", (50, 150),
+                        cv2.putText(img, "Green brush selected", (50, notification_y),
                                     cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
                         show_guide = False
                         keyboard_input.active = False  # Close keyboard input if open
@@ -502,10 +515,10 @@ try:
                             header = overlayList[5]
                         drawColor = (0, 255, 255)  # Yellow
                         # Draw black outline (thicker)
-                        cv2.putText(img, "Yellow brush selected", (50, 150),
+                        cv2.putText(img, "Yellow brush selected", (50, notification_y),
                                     cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 0), 4)
                         # Draw main white text (thinner)
-                        cv2.putText(img, "Yellow brush selected", (50, 150),
+                        cv2.putText(img, "Yellow brush selected", (50, notification_y),
                                     cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
                         show_guide = False
                         keyboard_input.active = False  # Close keyboard input if open
@@ -515,10 +528,10 @@ try:
                             header = overlayList[6]
                         drawColor = (0, 0, 0)  # Eraser
                         # Draw black outline (thicker)
-                        cv2.putText(img, "Eraser selected", (50, 150),
+                        cv2.putText(img, "Eraser selected", (50, notification_y),
                                     cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 0), 4)
                         # Draw main white text (thinner)
-                        cv2.putText(img, "Eraser selected", (50, 150),
+                        cv2.putText(img, "Eraser selected", (50, notification_y),
                                     cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
                         show_guide = False
                         keyboard_input.active = False  # Close keyboard input if open
@@ -537,17 +550,17 @@ try:
                             state = undoStack.pop()
                             restore_state(state)
                             # Draw black outline (thicker)
-                            cv2.putText(img, "Undo", (50, 150),
+                            cv2.putText(img, "Undo", (50, notification_y),
                                         cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 0), 4)
                             # Draw main white text (thinner)
-                            cv2.putText(img, "Undo", (50, 150),
+                            cv2.putText(img, "Undo", (50, notification_y),
                                         cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
                         else:
                             # Draw black outline (thicker)
-                            cv2.putText(img, "Nothing to undo", (50, 150),
+                            cv2.putText(img, "Nothing to undo", (50, notification_y),
                                         cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 0), 4)
                             # Draw main white text (thinner)
-                            cv2.putText(img, "Nothing to undo", (50, 150),
+                            cv2.putText(img, "Nothing to undo", (50, notification_y),
                                         cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
                         show_guide = False
 
@@ -559,17 +572,17 @@ try:
                             state = redoStack.pop()
                             restore_state(state)
                             # Draw black outline (thicker)
-                            cv2.putText(img, "Redo", (50, 150),
+                            cv2.putText(img, "Redo", (50, notification_y),
                                         cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 0), 4)
                             # Draw main white text (thinner)
-                            cv2.putText(img, "Redo", (50, 150),
+                            cv2.putText(img, "Redo", (50, notification_y),
                                         cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
                         else:
                             # Draw black outline (thicker)
-                            cv2.putText(img, "Nothing to redo", (50, 150),
+                            cv2.putText(img, "Nothing to redo", (50, notification_y),
                                         cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 0), 4)
                             # Draw main white text (thinner)
-                            cv2.putText(img, "Nothing to redo", (50, 150),
+                            cv2.putText(img, "Nothing to redo", (50, notification_y),
                                         cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
                         show_guide = False
 
@@ -577,10 +590,10 @@ try:
                         if len(overlayList) > 9:
                             header = overlayList[9]
                         # Draw black outline (thicker)
-                        cv2.putText(img, "Guide selected", (50, 150),
+                        cv2.putText(img, "Guide selected", (50, notification_y),
                                     cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 0), 4)
                         # Draw main white text (thinner)
-                        cv2.putText(img, "Guide selected", (50, 150),
+                        cv2.putText(img, "Guide selected", (50, notification_y),
                                     cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
                         # Toggle guide display
                         show_guide = True  # Always show guide when selected
@@ -593,10 +606,10 @@ try:
                         if not keyboard_input.active:
                             keyboard_input.active = True
                             # Draw black outline (thicker)
-                            cv2.putText(img, "Keyboard Mode Opened", (50, 150),
+                            cv2.putText(img, "Keyboard Mode Opened", (50, notification_y),
                                         cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 0), 4)
                             # Draw main white text (thinner)
-                            cv2.putText(img, "Keyboard Mode Opened", (50, 150),
+                            cv2.putText(img, "Keyboard Mode Opened", (50, notification_y),
                                         cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
                         if len(overlayList) > 10:
                             header = overlayList[10]
@@ -616,10 +629,10 @@ try:
                                 brushSize = min(50, brushSize + 1)
                         # Draw black outline (thicker)
                         cv2.putText(img, f"{'Eraser' if drawColor == (0, 0, 0) else 'Brush'} size: {eraserSize if drawColor == (0, 0, 0) else brushSize}", 
-                                    (50, 150), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 0), 4)
+                                    (50, notification_y), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 0), 4)
                         # Draw main white text (thinner)
                         cv2.putText(img, f"{'Eraser' if drawColor == (0, 0, 0) else 'Brush'} size: {eraserSize if drawColor == (0, 0, 0) else brushSize}", 
-                                    (50, 150), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+                                    (50, notification_y), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
 
                 # Show selection rectangle
                 cv2.rectangle(img, (x1, y1 - 25), (x2, y2 + 25), drawColor, cv2.FILLED)
@@ -781,9 +794,9 @@ try:
         img = cv2.bitwise_and(img, 255 - mask)  # Remove drawn areas from camera feed
         img = cv2.add(img, imgCanvas)  # Add the canvas with drawings
 
-        # 9. Set Header Image
+        # 9. Set Header Image - FIXED: Now uses 78 pixel height
         if header is not None:
-            img[0:125, 0:1280] = header
+            img[0:78, 0:1280] = header  # FIXED: Changed from 125 to 78
 
         # 10. Draw keyboard text and placeholder
         if keyboard_input.active:
@@ -805,28 +818,31 @@ try:
         # 11. Display Guide Image if active
         if show_guide and current_guide is not None:
             # Create a composite image that preserves the drawing canvas
-            guide_area = img[125:720, 0:1280].copy()
+            guide_area = img[78:720, 0:1280].copy()  # FIXED: Changed from 125 to 78
             # Blend the guide with the current camera feed (50% opacity)
             blended_guide = cv2.addWeighted(current_guide, 0.3, guide_area, 0.3, 0)
             # Put the blended guide back
-            img[125:720, 0:1280] = blended_guide
+            img[78:720, 0:1280] = blended_guide  # FIXED: Changed from 125 to 78
 
             # Display guide navigation instructions
-            cv2.putText(img, "", (50, 150),
+            cv2.putText(img, "", (50, notification_y),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
-            cv2.putText(img, f"Guide {current_guide_index + 1}/{len(guideList)}", (1100, 150),
+            cv2.putText(img, f"Guide {current_guide_index + 1}/{len(guideList)}", (1100, notification_y),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
 
-        # Show notification if active
+        # Show notification if active - Positioned below header
         current_time = time.time()
         if current_time < notification_time and notification_text:
+            # Position notification below header (header is 78px tall)
+            notification_y = 110  # 78 (header) + 32 (padding)
+            
             # Draw notification background
             text_size = cv2.getTextSize(notification_text, cv2.FONT_HERSHEY_SIMPLEX, 0.7, 2)[0]
-            cv2.rectangle(img, (10, 10), (20 + text_size[0], 40), (50, 50, 50), -1)
-            cv2.rectangle(img, (10, 10), (20 + text_size[0], 40), (200, 200, 200), 1)
+            cv2.rectangle(img, (10, notification_y - 25), (20 + text_size[0], notification_y + 5), (50, 50, 50), -1)
+            cv2.rectangle(img, (10, notification_y - 25), (20 + text_size[0], notification_y + 5), (200, 200, 200), 1)
             
             # Draw notification text
-            cv2.putText(img, notification_text, (20, 32), 
+            cv2.putText(img, notification_text, (20, notification_y), 
                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
 
         # 12. Display the image
