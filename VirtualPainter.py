@@ -136,7 +136,7 @@ imgCanvas = np.zeros((720, 1280, 3), np.uint8)
 # Undo/Redo Stack - now stores both canvas and text state
 undoStack = []
 redoStack = []
-MAX_UNDO_STACK_SIZE = 20  # Limit undo stack to prevent memory growth
+MAX_UNDO_STACK_SIZE = 50  # Limit undo stack to prevent memory growth
 
 # Create keyboard input handler
 keyboard_input = KeyboardInput()
