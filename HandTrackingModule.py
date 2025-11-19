@@ -112,7 +112,7 @@ class HandDetector:
         """Detect hands in image with memory optimization"""
         if img is None or img.size == 0:
             return img
-            
+        
         try:
             # MEMORY OPTIMIZATION: Reuse RGB conversion
             imgRGB = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
@@ -186,7 +186,7 @@ class HandDetector:
                         if id in self.tipIds:
                             cv2.circle(img, (cx, cy), 6, (255, 0, 255), cv2.FILLED)
                             cv2.circle(img, (cx, cy), 8, (255, 255, 255), 2)
-                        
+            
             except (IndexError, AttributeError) as e:
                 # Silent fail for hand detection errors
                 pass
@@ -277,7 +277,8 @@ def main():
         if not cap.isOpened():
             print("Error: Could not open camera")
             return
-            
+
+        #c camera issue detailing 640x480p    
         # Set camera properties for better performance
         cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
         cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
@@ -320,7 +321,7 @@ def main():
             # Exit on 'q' press
             if cv2.waitKey(1) & 0xFF == ord('q'):
                 break
-                
+
             # Periodic garbage collection
             if frame_count % 100 == 0:
                 gc.collect()
@@ -340,7 +341,6 @@ def main():
             detector.cleanup()
         cv2.destroyAllWindows()
         gc.collect()
-
 
 if __name__ == "__main__":
     main()

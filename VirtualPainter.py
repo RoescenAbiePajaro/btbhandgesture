@@ -12,20 +12,199 @@ from tkinter import messagebox
 import sys
 import atexit
 import threading
-from SizeAdjustmentWindow import SizeAdjustmentWindow  # New import
-from track_click import tracker  # Import click tracker
-import gc  # Add garbage collection
+from SizeAdjustmentWindow import SizeAdjustmentWindow
+from track_click import tracker
+import gc
+import platform
 
-# Variables
-brushSize = 10
-eraserSize = 100
-fps = 60
-time_per_frame = 5.0 / fps
+# =============================================================================
+# UNIVERSAL COMPATIBILITY SETTINGS
+# =============================================================================
 
-import os
-import cv2
+class UniversalCompatibility:
+    def __init__(self):
+        self.system_type = self.detect_system_type()
+        self.settings = self.get_optimal_settings()
+        print(f"Detected system: {self.system_type}")
+        print(f"Optimal settings: {self.settings}")
+    
+    def detect_system_type(self):
+        """Detect if system is low-end, medium, or high-end"""
+        try:
+            import psutil
+            ram_gb = psutil.virtual_memory().total / (1024**3)
+            cpu_cores = psutil.cpu_count()
+            
+            # Low-end: <4GB RAM or dual-core
+            if ram_gb < 4 or cpu_cores <= 2:
+                return "low_end"
+            # Medium: 4-8GB RAM
+            elif ram_gb < 8:
+                return "medium"
+            # High-end: 8GB+ RAM and quad-core+
+            else:
+                return "high_end"
+        except:
+            return "medium"  # Conservative default
+    
+    def get_optimal_settings(self):
+        """Get settings optimized for detected system type"""
+        base_settings = {
+            "low_end": {
+                "fps": 30,
+                "width": 640,
+                "height": 480,
+                "detection_confidence": 0.6,
+                "enable_animations": False,
+                "frame_skip": 1,  # Process every other frame
+                "hand_tracking_quality": "fast"
+            },
+            "medium": {
+                "fps": 45,
+                "width": 1024,
+                "height": 576,
+                "detection_confidence": 0.7,
+                "enable_animations": True,
+                "frame_skip": 0,
+                "hand_tracking_quality": "balanced"
+            },
+            "high_end": {
+                "fps": 60,
+                "width": 1280,
+                "height": 720,
+                "detection_confidence": 0.8,
+                "enable_animations": True,
+                "frame_skip": 0,
+                "hand_tracking_quality": "accurate"
+            }
+        }
+        return base_settings[self.system_type]
+
+# Initialize universal compatibility
+compat = UniversalCompatibility()
+
+# Apply optimal settings
+fps = compat.settings['fps']
+time_per_frame = 1.0 / fps
+
+# =============================================================================
+# UNIVERSAL CAMERA SYSTEM
+# =============================================================================
+
+def find_working_camera_universal():
+    """Universal camera detection that works on ALL devices and camera types"""
+    
+    # Camera detection strategies for different platforms
+    platform_strategies = {
+        'windows': [
+            (cv2.CAP_DSHOW, "DirectShow (Windows USB/Built-in)"),
+            (cv2.CAP_MSMF, "Media Foundation (Windows)"),
+        ],
+        'linux': [
+            (cv2.CAP_V4L2, "Video4Linux (Linux USB/Built-in)"),
+        ],
+        'darwin': [  # macOS
+            (cv2.CAP_AVFOUNDATION, "AVFoundation (macOS)"),
+        ]
+    }
+    
+    current_platform = platform.system().lower()
+    strategies = platform_strategies.get(current_platform, [(cv2.CAP_ANY, "Auto-detect")])
+    
+    print("Scanning for cameras...")
+    
+    # Try different strategies
+    for backend, backend_name in strategies:
+        print(f"Trying {backend_name}...")
+        
+        for camera_index in range(5):  # Check first 5 camera indices
+            try:
+                cap = cv2.VideoCapture(camera_index, backend)
+                
+                if cap.isOpened():
+                    # Test if camera can actually read frames
+                    ret, frame = cap.read()
+                    if ret and frame is not None:
+                        print(f"✅ Found working camera: Index {camera_index} with {backend_name}")
+                        
+                        # Apply optimal resolution
+                        target_width = compat.settings['width']
+                        target_height = compat.settings['height']
+                        
+                        # Try to set resolution (not all cameras support this)
+                        cap.set(cv2.CAP_PROP_FRAME_WIDTH, target_width)
+                        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, target_height)
+                        
+                        # Set buffer size to prevent lag
+                        cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+                        cap.set(cv2.CAP_PROP_FPS, compat.settings['fps'])
+                        
+                        # Verify actual resolution
+                        actual_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+                        actual_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+                        print(f"Camera resolution: {actual_width}x{actual_height}")
+                        
+                        return cap
+                    else:
+                        cap.release()
+            except Exception as e:
+                print(f"Camera {camera_index} with {backend_name} failed: {e}")
+                continue
+    
+    # Final fallback: try without specific backend
+    print("Trying fallback camera detection...")
+    for camera_index in range(5):
+        try:
+            cap = cv2.VideoCapture(camera_index)
+            if cap.isOpened():
+                ret, frame = cap.read()
+                if ret:
+                    print(f"✅ Using fallback camera at index {camera_index}")
+                    return cap
+                cap.release()
+        except:
+            continue
+    
+    # If no camera found, provide helpful error message
+    error_msg = """
+❌ No working camera found!
+
+Troubleshooting tips:
+1. Make sure your camera is connected and not being used by another app
+2. For USB cameras: try unplugging and reconnecting
+3. Check camera permissions in system settings
+4. Try a different USB port
+5. Restart your computer if camera was recently connected
+
+Supported cameras:
+• Built-in laptop cameras
+• USB webcams (Logitech, etc.)
+• External USB cameras
+• Most desktop cameras
+"""
+    raise Exception(error_msg)
+
+# =============================================================================
+# RESOURCE PATH HELPER
+# =============================================================================
+
+def resource_path(relative_path):
+    """Get absolute path to resource, works for dev and for PyInstaller"""
+    try:
+        # PyInstaller creates a temp folder and stores path in _MEIPASS
+        base_path = sys._MEIPASS
+    except Exception:
+        base_path = os.path.abspath(".")
+    
+    return os.path.join(base_path, relative_path)
+
+# =============================================================================
+# ICON AND IMAGE LOADING (FIXED)
+# =============================================================================
 
 # Initialize variables
+brushSize = 10
+eraserSize = 100
 overlayList = []
 guideList = []
 header = None
@@ -35,46 +214,57 @@ show_guide = False
 
 # Get the base path for resources
 if getattr(sys, 'frozen', False):
-    # Running as compiled executable
     basePath = sys._MEIPASS
 else:
-    # Running as normal Python script
     basePath = os.path.dirname(os.path.abspath(__file__))
 
-#####################################################################
-# Load header images with CORRECT SIZE (1280x78)
+print(f"Base path for resources: {basePath}")
+
+# Load header images - KEEP ORIGINAL 1280x78 SIZE for icons to work properly
 folderPath = os.path.join(basePath, 'header')
 if os.path.exists(folderPath) and os.path.isdir(folderPath):
     try:
         myList = sorted(os.listdir(folderPath))
+        print(f"Found {len(myList)} header images")
+        
         for imPath in myList:
             img_path = os.path.join(folderPath, imPath)
+            print(f"Loading header image: {img_path}")
             img = cv2.imread(img_path)
             if img is not None:
-                # FIXED: Resize images to CORRECT header size (1280x78)
+                # KEEP ORIGINAL SIZE 1280x78 for proper icon alignment
                 img = cv2.resize(img, (1280, 78))
                 overlayList.append(img)
+                print(f"Successfully loaded: {imPath}")
             else:
                 print(f"Warning: Failed to load header image: {imPath}")
 
         if overlayList:
             header = overlayList[0]
+            print("Header images loaded successfully")
         else:
             print(f"Warning: No valid header images found in {folderPath}")
     except Exception as e:
-        print(f"Error loading header images from {folderPath}: {e}")
+        print(f"Error loading header images: {e}")
+        import traceback
+        traceback.print_exc()
+else:
+    print(f"Warning: Header folder not found: {folderPath}")
 
-# Load guide images with memory optimization
+# Load guide images with adaptive sizing
 folderPath = os.path.join(basePath, 'guide')
 if os.path.exists(folderPath) and os.path.isdir(folderPath):
     try:
         myList = sorted(os.listdir(folderPath))
+        print(f"Found {len(myList)} guide images")
+        
         for imPath in myList:
             img_path = os.path.join(folderPath, imPath)
             img = cv2.imread(img_path)
             if img is not None:
-                # Resize guide images to fit below header (1280x642)
-                img = cv2.resize(img, (1280, 642))
+                # Resize guide images to fit below header
+                guide_height = compat.settings['height'] - 78
+                img = cv2.resize(img, (compat.settings['width'], guide_height))
                 guideList.append(img)
             else:
                 print(f"Warning: Failed to load guide image: {imPath}")
@@ -82,114 +272,126 @@ if os.path.exists(folderPath) and os.path.isdir(folderPath):
         if guideList:
             current_guide_index = 0
             current_guide = guideList[current_guide_index]
+            print("Guide images loaded successfully")
     except Exception as e:
         print(f"Error loading guide images: {e}")
 
-###################################################################################################
 # Swipe detection variables
-swipe_threshold = 50  # Minimum horizontal movement to consider a swipe
-swipe_start_x = None  # To track where swipe started
-swipe_active = False  # To track if swipe is in progress
+swipe_threshold = 50
+swipe_start_x = None
+swipe_active = False
 
 # Default drawing color
 drawColor = (255, 0, 255)
 
-def find_working_camera():
-    """Try to find a working camera by testing available camera indices."""
-    # Try up to 10 camera indices (adjust range as needed)
-    for i in range(10):
-        cap = cv2.VideoCapture(i, cv2.CAP_DSHOW)  # Use DSHOW on Windows for better compatibility
-        if cap.isOpened():
-            # Try to read a frame to verify the camera works
-            ret = cap.grab()
-            if ret:
-                print(f"Found working camera at index {i}")
-                return cap
-            cap.release()
-    # If no camera found, raise an error
-    raise Exception("No working camera found. Please connect a camera and try again.")
+# =============================================================================
+# CAMERA INITIALIZATION
+# =============================================================================
 
-# Set up the camera
 try:
-    cap = find_working_camera()
-    cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)  # Width
-    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)  # Height
-    # Set buffer size to 1 to prevent frame accumulation
-    cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+    cap = find_working_camera_universal()
 except Exception as e:
     print(f"Error initializing camera: {e}")
+    # Show user-friendly error message
+    if "No working camera found" in str(e):
+        messagebox.showerror("Camera Error", 
+            "No camera detected!\n\n"
+            "Please ensure your camera is connected and not being used by another application.\n\n"
+            "Supported cameras:\n"
+            "• Built-in laptop cameras\n"
+            "• USB webcams\n"
+            "• External USB cameras")
     exit(1)
 
-# Assigning Detector with optimized parameters for stable tracking
+# =============================================================================
+# HAND DETECTOR WITH ADAPTIVE SETTINGS
+# =============================================================================
+
+# Optimize hand detection based on system capability
+detection_config = {
+    "low_end": {"detectionCon": 0.6, "trackCon": 0.4, "maxHands": 1},
+    "medium": {"detectionCon": 0.7, "trackCon": 0.5, "maxHands": 1},
+    "high_end": {"detectionCon": 0.8, "trackCon": 0.6, "maxHands": 1}
+}
+
+config = detection_config[compat.system_type]
 detector = htm.HandDetector(
-    detectionCon=0.7,    # Balanced detection confidence
-    trackCon=0.5,        # Higher tracking confidence  
-    maxHands=1           # Track only one hand for stability
+    detectionCon=config['detectionCon'],
+    trackCon=config['trackCon'],  
+    maxHands=config['maxHands']
 )
+
+# =============================================================================
+# CANVAS AND STATE MANAGEMENT
+# =============================================================================
+
+# Create Image Canvas with adaptive size but maintain header area
+imgCanvas = np.zeros((compat.settings['height'], compat.settings['width'], 3), np.uint8)
 
 # Previous points
 xp, yp = 0, 0
 
-# Create Image Canvas
-imgCanvas = np.zeros((720, 1280, 3), np.uint8)
-
-# Undo/Redo Stack - now stores both canvas and text state
+# Undo/Redo Stack
 undoStack = []
 redoStack = []
-MAX_UNDO_STACK_SIZE = 50  # Limit undo stack to prevent memory growth
+MAX_UNDO_STACK_SIZE = 30  # Reduced for low-end systems
 
 # Create keyboard input handler
 keyboard_input = KeyboardInput()
 last_time = time.time()
 
 # Create size adjuster window
-size_adjuster = SizeAdjustmentWindow()  # New size adjuster instance
+size_adjuster = SizeAdjustmentWindow()
 
-# Function to save current state (both canvas and text)
+# =============================================================================
+# CORE FUNCTIONS (Optimized for performance)
+# =============================================================================
+
 def save_state():
-    # Limit undo stack size to prevent memory issues
+    """Save current state with memory optimization"""
     if len(undoStack) >= MAX_UNDO_STACK_SIZE:
-        # Remove oldest state to make room
         old_state = undoStack.pop(0)
-        del old_state  # Explicitly delete to free memory
+        del old_state
     
     return {
         'canvas': imgCanvas.copy(),
         'text_objects': keyboard_input.text_objects.copy()
     }
 
-# Function to restore state (both canvas and text)
 def restore_state(state):
     global imgCanvas
     imgCanvas = state['canvas'].copy()
     keyboard_input.text_objects = state['text_objects'].copy()
 
-# Function to show transient notification
 def show_transient_notification(message, duration=1.0):
-    """Show a temporary notification message on screen"""
     global notification_text, notification_time
     notification_text = message
     notification_time = time.time() + duration
 
+def optimize_memory_usage():
+    """Aggressive memory optimization for low-end systems"""
+    if compat.system_type == "low_end":
+        # Force garbage collection
+        gc.collect()
+
 def cleanup_resources():
-    """Clean up resources to prevent memory leaks"""
+    """Enhanced cleanup for all system types"""
     global cap, detector, keyboard_input, size_adjuster, overlayList, guideList, undoStack, redoStack
     
     print("Cleaning up resources...")
     
-    # Release camera first
+    # Release camera
     try:
         if 'cap' in globals() and cap is not None:
             cap.release()
-            cap = None
     except Exception as e:
         print(f"Error releasing camera: {e}")
     
-    # Close all OpenCV windows
+    # Close OpenCV windows
     try:
         cv2.destroyAllWindows()
-    except Exception as e:
-        print(f"Error destroying OpenCV windows: {e}")
+    except:
+        pass
     
     # Clean up tkinter windows
     try:
@@ -199,21 +401,8 @@ def cleanup_resources():
                     size_adjuster.window.after(100, size_adjuster.window.destroy())
                 except:
                     pass
-            size_adjuster = None
     except Exception as e:
         print(f"Error cleaning up tkinter windows: {e}")
-    
-    # Clean up keyboard input
-    try:
-        if 'keyboard_input' in globals() and keyboard_input is not None:
-            if hasattr(keyboard_input, 'root'):
-                try:
-                    keyboard_input.root.after(100, keyboard_input.root.destroy())
-                except:
-                    pass
-            keyboard_input = None
-    except Exception as e:
-        print(f"Error cleaning up keyboard input: {e}")
     
     # Clear large data structures
     try:
@@ -228,15 +417,14 @@ def cleanup_resources():
     except Exception as e:
         print(f"Error clearing data structures: {e}")
     
-    # Force garbage collection and cleanup
+    # Force garbage collection
     gc.collect()
 
 def btb_saved_canvas_async():
-    """Save the canvas in a separate thread to prevent freezing"""
+    """Save canvas with compatibility optimizations"""
     global notification_text, notification_time
     
     try:
-        # Create btbSavedImage folder in Downloads if it doesn't exist
         download_folder = os.path.join(os.path.expanduser("~"), "Downloads")
         save_folder = os.path.join(download_folder, "beyondthebrush_app_saved_canvas")
         os.makedirs(save_folder, exist_ok=True)
@@ -244,70 +432,42 @@ def btb_saved_canvas_async():
         timestamp = time.strftime("%Y%m%d_%H%M%S")
         save_path = os.path.join(save_folder, f"btb_saved_canvas_{timestamp}.png")
 
-        # Create a white canvas with the same size as imgCanvas
-        saved_img = np.ones_like(imgCanvas) * 255  # White background (255, 255, 255)
+        # Create white canvas
+        saved_img = np.ones_like(imgCanvas) * 255
         
-        # Copy the original content (which will be black or drawn colors) onto the white background
-        # This will make the background white while keeping all drawn content as is
-        mask = imgCanvas.any(axis=2)  # Create a mask of non-black pixels
-        saved_img[mask] = imgCanvas[mask]  # Only copy non-black pixels
+        # Copy non-black pixels
+        mask = imgCanvas.any(axis=2)
+        saved_img[mask] = imgCanvas[mask]
 
-        # Draw all text objects onto the saved image
+        # Draw text objects
         for obj in keyboard_input.text_objects:
-            # Only process text objects that are below the header (y > 78)
-            if obj['position'][1] > 78:  # 78 is the NEW header height
-                # Draw outline (thicker)
-                cv2.putText(
-                    saved_img,
-                    obj['text'],
-                    obj['position'],
-                    obj['font'],
-                    obj['scale'],
-                    (0, 0, 0),  # Black outline
-                    obj['thickness'] + 2
-                )
-                # Draw main text
-                cv2.putText(
-                    saved_img,
-                    obj['text'],
-                    obj['position'],
-                    obj['font'],
-                    obj['scale'],
-                    obj['color'],
-                    obj['thickness']
-                )
+            if obj['position'][1] > 78:
+                cv2.putText(saved_img, obj['text'], obj['position'],
+                          obj['font'], obj['scale'], (0, 0, 0), obj['thickness'] + 2)
+                cv2.putText(saved_img, obj['text'], obj['position'],
+                          obj['font'], obj['scale'], obj['color'], obj['thickness'])
 
-        # Define target dimensions (1280x660) and header height (78px)
-        target_width = 1280
-        target_height = 660
+        # Define target dimensions
+        target_width = compat.settings['width']
+        target_height = compat.settings['height'] - 60  # Account for header
         header_height = 78
         
-        # Create a new white image with the target dimensions
         final_img = np.ones((target_height, target_width, 3), dtype=np.uint8) * 255
         
-        # Calculate the region to copy from the original image
-        # Start from header_height (78px) and take up to target_height (660px)
-        # Ensure we don't go out of bounds
         src_y_start = header_height
         src_height = min(target_height, saved_img.shape[0] - header_height)
         
-        # Copy the content from the original image to the final image
         final_img[0:src_height, 0:target_width] = saved_img[src_y_start:src_y_start+src_height, 0:target_width]
         
-        # Save the final image with exact 1280x660 dimensions
         success = cv2.imwrite(save_path, final_img)
         
-        # Clean up temporary images
+        # Clean up
         del saved_img, final_img
         
         if success:
-            # Track the canvas save action
             tracker.track_click(button="btb_saved_canvas", page="beyondthebrush_app")
-            
-            # Set the notification to be shown in the main loop
             notification_text = "Image Saved!"
-            notification_time = time.time() + 3.0  # Show for 3 seconds
-            
+            notification_time = time.time() + 3.0
             print(f"Canvas saved to: {save_path}")
         else:
             raise Exception("cv2.imwrite returned False")
@@ -315,19 +475,16 @@ def btb_saved_canvas_async():
     except Exception as e:
         print(f"Error saving canvas: {str(e)}")
         notification_text = "Error saving image!"
-        notification_time = time.time() + 3.0  # Show for 3 seconds
+        notification_time = time.time() + 3.0
     finally:
-        # Force garbage collection after save operation
         gc.collect()
 
 def btb_saved_canvas():
-    """Start the save process in a separate thread"""
     save_thread = threading.Thread(target=btb_saved_canvas_async)
-    save_thread.daemon = True  # This ensures the thread will exit when the main program exits
+    save_thread.daemon = True
     save_thread.start()
 
-# Function to interpolate points
-def interpolate_points(x1, y1, x2, y2, num_points=10):
+def interpolate_points(x1, y1, x2, y2, num_points=5):  # Reduced points for performance
     points = []
     for i in range(num_points):
         x = int(x1 + (x2 - x1) * (i / num_points))
@@ -335,12 +492,51 @@ def interpolate_points(x1, y1, x2, y2, num_points=10):
         points.append((x, y))
     return points
 
-# Global flag to track if we're in the process of closing
+# =============================================================================
+# HEADER ICON MANAGEMENT (FIXED)
+# =============================================================================
+
+def get_header_for_resolution():
+    """Get properly scaled header for current resolution"""
+    if header is None:
+        return None
+    
+    # Scale header to match current width while maintaining aspect ratio
+    current_width = compat.settings['width']
+    if current_width != 1280:  # Only resize if different from original
+        scale_factor = current_width / 1280.0
+        new_width = current_width
+        new_height = int(78 * scale_factor)  # Maintain aspect ratio
+        return cv2.resize(header, (new_width, new_height))
+    else:
+        return header
+
+def get_button_boundaries():
+    """Calculate button boundaries based on current resolution"""
+    button_width = compat.settings['width'] // 10  # 10 buttons across
+    boundaries = []
+    for i in range(10):
+        start_x = i * button_width
+        end_x = (i + 1) * button_width
+        boundaries.append((start_x, end_x))
+    return boundaries
+
+# =============================================================================
+# MAIN APPLICATION LOOP (Optimized with Fixed Icons)
+# =============================================================================
+
+# Global flags
 is_closing = False
+running = True
+last_save_time = 0
+SAVE_COOLDOWN = 1.0
+notification_text = ""
+notification_time = 0
+frame_count = 0
 
 def on_close():
     global running, is_closing
-    if is_closing:  # Prevent multiple cleanup attempts
+    if is_closing:
         return
         
     is_closing = True
@@ -352,35 +548,24 @@ def on_close():
     except Exception as e:
         print(f"Error during close: {e}")
     finally:
-        # Force exit after a short delay to ensure cleanup completes
         import threading
         def force_exit():
             import os
             import time
-            time.sleep(1)  # Give some time for cleanup to complete
+            time.sleep(1)
             os._exit(0)
             
-        # Start the force exit in a separate thread to avoid blocking
         threading.Thread(target=force_exit, daemon=True).start()
         sys.exit(0)
 
-# Callback function for window close button
 def on_window_close(event=None):
     on_close()
 
-# Add these variables before the main loop
-running = True
-last_save_time = 0
-SAVE_COOLDOWN = 1.0  # 1 second cooldown between saves
-notification_text = ""
-notification_time = 0
-
-# Add this function after other function definitions
 def handle_size_change(tool_type, size):
     global brushSize, eraserSize
     if tool_type == 'brush':
         brushSize = size
-    else:  # eraser
+    else:
         eraserSize = size
 
 # Set the callback
@@ -389,73 +574,106 @@ size_adjuster.set_size_change_callback(handle_size_change)
 # Register cleanup function
 atexit.register(cleanup_resources)
 
+# Call memory optimization
+optimize_memory_usage()
+
 # Main Loop
 try:
-    # Create window first and set close callback
-    cv2.namedWindow("Beyond The Brush", cv2.WINDOW_NORMAL)
-    cv2.resizeWindow("Beyond The Brush", 1280, 720)
-    cv2.setWindowProperty("Beyond The Brush", cv2.WND_PROP_TOPMOST, 0)
-    cv2.setWindowProperty("Beyond The Brush", cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_NORMAL)
+    # Create window with adaptive size
+    window_name = "Beyond The Brush"
+    cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
+    cv2.resizeWindow(window_name, compat.settings['width'], compat.settings['height'])
+    cv2.setWindowProperty(window_name, cv2.WND_PROP_TOPMOST, 0)
     
-    # Set window icon
+    # Set window icon (Windows)
     try:
-        import ctypes
-        import sys
         if sys.platform.startswith('win'):
-            icon_path = os.path.join(basePath, 'icon', 'app.ico')
+            icon_path = resource_path(os.path.join('icon', 'app.ico'))
             if os.path.exists(icon_path):
+                import ctypes
                 hwnd = ctypes.windll.user32.FindWindowW(None, "Beyond The Brush")
-                ctypes.windll.shell32.Shell_NotifyIcon(0, 0)  # Required for Windows to refresh the icon
-                ctypes.windll.shell32.Shell_NotifyIcon(1, 0)  # Required for Windows to refresh the icon
-                ctypes.windll.user32.SendMessageW(hwnd, 0x80, 0, ctypes.windll.user32.LoadImageW(0, icon_path, 1, 0, 0, 0x10 | 0x40))
+                if hwnd:
+                    # Load the icon
+                    ICON_SMALL = 0
+                    ICON_BIG = 1
+                    icon_handle = ctypes.windll.user32.LoadImageW(0, icon_path, 1, 0, 0, 0x00000010)
+                    if icon_handle:
+                        ctypes.windll.user32.SendMessageW(hwnd, 0x80, ICON_SMALL, icon_handle)
+                        ctypes.windll.user32.SendMessageW(hwnd, 0x80, ICON_BIG, icon_handle)
     except Exception as e:
         print(f"Could not set window icon: {e}")
     
-    frame_count = 0
-    gc_interval = 100  # Run garbage collection every 100 frames
+    # Performance monitoring
+    frame_skip_counter = 0
+    frames_to_skip = compat.settings['frame_skip']
     
     while running:
         start_time = time.time()
         frame_count += 1
-        
-        # Garbage collection with different intervals based on keyboard activity
-        if keyboard_input.active:
-            gc_interval = 300  # less aggressive when typing
-        else:
-            gc_interval = 100
-        if frame_count % gc_interval == 0:
-            gc.collect()
+        frame_skip_counter += 1
+
+        # Frame skipping for low-end systems
+        if frame_skip_counter <= frames_to_skip:
+            # Still process some essential operations
+            try:
+                key = cv2.waitKey(1) & 0xFF
+                if key == 27:  # ESC key
+                    on_close()
+                    break
+            except:
+                pass
+            continue
+        frame_skip_counter = 0
 
         # 1. Import Image
         success, img = cap.read()
         if not success:
             print("Failed to capture image from camera")
-            continue
+            # Try to reinitialize camera
+            try:
+                cap.release()
+                time.sleep(0.1)
+                cap = find_working_camera_universal()
+                continue
+            except:
+                print("Could not reinitialize camera")
+                break
 
-        # Flip the image horizontally for a mirror effect
+        # Flip the image horizontally for mirror effect
         img = cv2.flip(img, 1)
 
-        # 2. Find Hand Landmarks with smoothing
-        img = detector.findHands(img, draw=False)
-        lmList = detector.findPosition(img, draw=False)
+        # 2. Find Hand Landmarks (with performance optimization)
+        if compat.system_type == "low_end":
+            # Reduce processing for low-end systems
+            img_small = cv2.resize(img, (320, 240))
+            img_small = detector.findHands(img_small, draw=False)
+            lmList = detector.findPosition(img_small, draw=False)
+            # Scale coordinates back to original size
+            if lmList:
+                scale_x = compat.settings['width'] / 320
+                scale_y = compat.settings['height'] / 240
+                for lm in lmList:
+                    lm[1] = int(lm[1] * scale_x)
+                    lm[2] = int(lm[2] * scale_y)
+        else:
+            img = detector.findHands(img, draw=False)
+            lmList = detector.findPosition(img, draw=False)
         
-        # Reset smoothing if no hand detected to prevent stale data
+        # Reset smoothing if no hand detected
         if not lmList or len(lmList) < 21:
             detector.reset_smoothing()
 
-        # Position notification below header (header is 78px tall)
-        notification_y = 110  # 78 (header) + 32 (padding)
+        # Position notification below header
+        notification_y = 110
         
-        # Draw black outline (thicker)
-        cv2.putText(img, "Selection Mode - Two Fingers Up", (850, notification_y),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 0), 4)  # Black with thickness 4
-
-        # Draw main white text (thinner)
-        cv2.putText(img, "Selection Mode - Two Fingers Up", (850, notification_y),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)  # White with thickness 2
+        # Draw mode indicator
+        cv2.putText(img, "Selection Mode - Two Fingers Up", (compat.settings['width'] - 400, notification_y),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 0), 4)
+        cv2.putText(img, "Selection Mode - Two Fingers Up", (compat.settings['width'] - 400, notification_y),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
 
         # Check if lmList is empty or doesn't have enough landmarks before proceeding
-        if lmList and len(lmList) >= 21:  # MediaPipe hand tracking has 21 landmarks
+        if lmList and len(lmList) >= 21:
             # Tip of index and middle fingers
             x1, y1 = lmList[8][1:]
             x2, y2 = lmList[12][1:]
@@ -468,179 +686,157 @@ try:
                 xp, yp = 0, 0  # Reset points
                 swipe_start_x = None  # Reset swipe tracking when in selection mode
 
+                # Get button boundaries for current resolution
+                button_boundaries = get_button_boundaries()
+                
                 # Detecting selection based on X coordinate
-                if y1 < 78:  # FIXED: Ensure the selection is within the NEW header area (78 pixels)
-                    if 0 < x1 < 128:  # Save
-                        current_time = time.time()
-                        if current_time - last_save_time > SAVE_COOLDOWN:
-                            if len(overlayList) > 1:
-                                header = overlayList[1]
-                            btb_saved_canvas()
-                            last_save_time = current_time
-                            show_guide = False
+                if y1 < 78:  # Header area
+                    current_header = get_header_for_resolution()
+                    header_height = current_header.shape[0] if current_header is not None else 78
+                    
+                    # Scale y1 coordinate for header detection
+                    scaled_y1 = y1
+                    if current_header is not None and current_header.shape[0] != 78:
+                        scale_factor = current_header.shape[0] / 78.0
+                        scaled_y1 = int(y1 * scale_factor)
+                    
+                    if scaled_y1 < header_height:
+                        # Check each button area
+                        for i, (start_x, end_x) in enumerate(button_boundaries):
+                            if start_x < x1 < end_x:
+                                # Button clicked - handle based on button index
+                                if i == 0:  # Save
+                                    current_time = time.time()
+                                    if current_time - last_save_time > SAVE_COOLDOWN:
+                                        if len(overlayList) > 1:
+                                            header = overlayList[1]
+                                        btb_saved_canvas()
+                                        last_save_time = current_time
+                                        show_guide = False
+                                        cv2.putText(img, "Saving...", (50, notification_y),
+                                                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 0), 4)
+                                        cv2.putText(img, "Saving...", (50, notification_y),
+                                                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
 
-                    elif 128 < x1 < 256:  # Pink
-                        if len(overlayList) > 2:
-                            header = overlayList[2]
-                        drawColor = (255, 0, 255)  # Pink
-                        # Draw black outline (thicker)
-                        cv2.putText(img, "Pink brush selected", (50, notification_y),
-                                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 0), 4)
-                        # Draw main white text (thinner)
-                        cv2.putText(img, "Pink brush selected", (50, notification_y),
-                                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
-                        show_guide = False
-                        keyboard_input.active = False  # Close keyboard input if open
+                                elif i == 1:  # Pink
+                                    if len(overlayList) > 2:
+                                        header = overlayList[2]
+                                    drawColor = (255, 0, 255)
+                                    cv2.putText(img, "Pink brush selected", (50, notification_y),
+                                                cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 0), 4)
+                                    cv2.putText(img, "Pink brush selected", (50, notification_y),
+                                                cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+                                    show_guide = False
+                                    keyboard_input.active = False
 
-                    elif 256 < x1 < 384:  # Blue
-                        if len(overlayList) > 3:
-                            header = overlayList[3]
-                        drawColor = (255, 0, 0)  # Blue
-                        # Draw black outline (thicker)
-                        cv2.putText(img, "Blue brush selected", (50, notification_y),
-                                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 0), 4)
-                        # Draw main white text (thinner)
-                        cv2.putText(img, "Blue brush selected", (50, notification_y),
-                                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
-                        show_guide = False
-                        keyboard_input.active = False  # Close keyboard input if open
+                                elif i == 2:  # Blue
+                                    if len(overlayList) > 3:
+                                        header = overlayList[3]
+                                    drawColor = (255, 0, 0)
+                                    cv2.putText(img, "Blue brush selected", (50, notification_y),
+                                                cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 0), 4)
+                                    cv2.putText(img, "Blue brush selected", (50, notification_y),
+                                                cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+                                    show_guide = False
+                                    keyboard_input.active = False
 
-                    elif 384 < x1 < 512:  # Green
-                        if len(overlayList) > 4:
-                            header = overlayList[4]
-                        drawColor = (0, 255, 0)  # Green
-                        # Draw black outline (thicker)
-                        cv2.putText(img, "Green brush selected", (50, notification_y),
-                                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 0), 4)
-                        # Draw main white text (thinner)
-                        cv2.putText(img, "Green brush selected", (50, notification_y),
-                                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
-                        show_guide = False
-                        keyboard_input.active = False  # Close keyboard input if open
+                                elif i == 3:  # Green
+                                    if len(overlayList) > 4:
+                                        header = overlayList[4]
+                                    drawColor = (0, 255, 0)
+                                    cv2.putText(img, "Green brush selected", (50, notification_y),
+                                                cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 0), 4)
+                                    cv2.putText(img, "Green brush selected", (50, notification_y),
+                                                cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+                                    show_guide = False
+                                    keyboard_input.active = False
 
-                    elif 512 < x1 < 640:  # Yellow
-                        if len(overlayList) > 5:
-                            header = overlayList[5]
-                        drawColor = (0, 255, 255)  # Yellow
-                        # Draw black outline (thicker)
-                        cv2.putText(img, "Yellow brush selected", (50, notification_y),
-                                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 0), 4)
-                        # Draw main white text (thinner)
-                        cv2.putText(img, "Yellow brush selected", (50, notification_y),
-                                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
-                        show_guide = False
-                        keyboard_input.active = False  # Close keyboard input if open
+                                elif i == 4:  # Yellow
+                                    if len(overlayList) > 5:
+                                        header = overlayList[5]
+                                    drawColor = (0, 255, 255)
+                                    cv2.putText(img, "Yellow brush selected", (50, notification_y),
+                                                cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 0), 4)
+                                    cv2.putText(img, "Yellow brush selected", (50, notification_y),
+                                                cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+                                    show_guide = False
+                                    keyboard_input.active = False
 
-                    elif 640 < x1 < 768:  # Eraser
-                        if len(overlayList) > 6:
-                            header = overlayList[6]
-                        drawColor = (0, 0, 0)  # Eraser
-                        # Draw black outline (thicker)
-                        cv2.putText(img, "Eraser selected", (50, notification_y),
-                                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 0), 4)
-                        # Draw main white text (thinner)
-                        cv2.putText(img, "Eraser selected", (50, notification_y),
-                                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
-                        show_guide = False
-                        keyboard_input.active = False  # Close keyboard input if open
-                        # Delete selected text if any
-                        keyboard_input.delete_selected()
+                                elif i == 5:  # Eraser
+                                    if len(overlayList) > 6:
+                                        header = overlayList[6]
+                                    drawColor = (0, 0, 0)
+                                    cv2.putText(img, "Eraser selected", (50, notification_y),
+                                                cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 0), 4)
+                                    cv2.putText(img, "Eraser selected", (50, notification_y),
+                                                cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+                                    show_guide = False
+                                    keyboard_input.active = False
+                                    keyboard_input.delete_selected()
 
-                    # Undo/Redo handling with global state
-                    elif 768 < x1 < 896:  # Undo
-                        if len(overlayList) > 7:
-                            header = overlayList[7]
-                        else:
-                            # Use a default header if index 7 doesn't exist
-                            header = overlayList[0] if overlayList else None
-                        if len(undoStack) > 0:
-                            redoStack.append(save_state())
-                            state = undoStack.pop()
-                            restore_state(state)
-                            # Draw black outline (thicker)
-                            cv2.putText(img, "Undo", (50, notification_y),
-                                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 0), 4)
-                            # Draw main white text (thinner)
-                            cv2.putText(img, "Undo", (50, notification_y),
-                                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
-                        else:
-                            # Draw black outline (thicker)
-                            cv2.putText(img, "Nothing to undo", (50, notification_y),
-                                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 0), 4)
-                            # Draw main white text (thinner)
-                            cv2.putText(img, "Nothing to undo", (50, notification_y),
-                                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
-                        show_guide = False
+                                elif i == 6:  # Undo
+                                    if len(overlayList) > 7:
+                                        header = overlayList[7]
+                                    else:
+                                        header = overlayList[0] if overlayList else None
+                                    if len(undoStack) > 0:
+                                        redoStack.append(save_state())
+                                        state = undoStack.pop()
+                                        restore_state(state)
+                                        cv2.putText(img, "Undo", (50, notification_y),
+                                                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 0), 4)
+                                        cv2.putText(img, "Undo", (50, notification_y),
+                                                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+                                    else:
+                                        cv2.putText(img, "Nothing to undo", (50, notification_y),
+                                                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 0), 4)
+                                        cv2.putText(img, "Nothing to undo", (50, notification_y),
+                                                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+                                    show_guide = False
 
-                    elif 896 < x1 < 1024:  # Redo
-                        if len(overlayList) > 8:
-                            header = overlayList[8]
-                        if len(redoStack) > 0:
-                            undoStack.append(save_state())
-                            state = redoStack.pop()
-                            restore_state(state)
-                            # Draw black outline (thicker)
-                            cv2.putText(img, "Redo", (50, notification_y),
-                                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 0), 4)
-                            # Draw main white text (thinner)
-                            cv2.putText(img, "Redo", (50, notification_y),
-                                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
-                        else:
-                            # Draw black outline (thicker)
-                            cv2.putText(img, "Nothing to redo", (50, notification_y),
-                                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 0), 4)
-                            # Draw main white text (thinner)
-                            cv2.putText(img, "Nothing to redo", (50, notification_y),
-                                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
-                        show_guide = False
+                                elif i == 7:  # Redo
+                                    if len(overlayList) > 8:
+                                        header = overlayList[8]
+                                    if len(redoStack) > 0:
+                                        undoStack.append(save_state())
+                                        state = redoStack.pop()
+                                        restore_state(state)
+                                        cv2.putText(img, "Redo", (50, notification_y),
+                                                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 0), 4)
+                                        cv2.putText(img, "Redo", (50, notification_y),
+                                                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+                                    else:
+                                        cv2.putText(img, "Nothing to redo", (50, notification_y),
+                                                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 0), 4)
+                                        cv2.putText(img, "Nothing to redo", (50, notification_y),
+                                                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+                                    show_guide = False
 
-                    elif 1024 < x1 < 1152:  # Guide
-                        if len(overlayList) > 9:
-                            header = overlayList[9]
-                        # Draw black outline (thicker)
-                        cv2.putText(img, "Guide selected", (50, notification_y),
-                                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 0), 4)
-                        # Draw main white text (thinner)
-                        cv2.putText(img, "Guide selected", (50, notification_y),
-                                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
-                        # Toggle guide display
-                        show_guide = True  # Always show guide when selected
-                        if guideList:
-                            current_guide_index = 0  # Reset to first guide
-                            current_guide = guideList[current_guide_index]  # Show first guide image
-                        keyboard_input.active = False  # Close keyboard input if open
+                                elif i == 8:  # Guide
+                                    if len(overlayList) > 9:
+                                        header = overlayList[9]
+                                    cv2.putText(img, "Guide selected", (50, notification_y),
+                                                cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 0), 4)
+                                    cv2.putText(img, "Guide selected", (50, notification_y),
+                                                cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+                                    show_guide = True
+                                    if guideList:
+                                        current_guide_index = 0
+                                        current_guide = guideList[current_guide_index]
+                                    keyboard_input.active = False
 
-                    elif 1155 < x1 < 1280:
-                        if not keyboard_input.active:
-                            keyboard_input.active = True
-                            # Draw black outline (thicker)
-                            cv2.putText(img, "Keyboard Mode Opened", (50, notification_y),
-                                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 0), 4)
-                            # Draw main white text (thinner)
-                            cv2.putText(img, "Keyboard Mode Opened", (50, notification_y),
-                                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
-                        if len(overlayList) > 10:
-                            header = overlayList[10]
-                        show_guide = False
+                                elif i == 9:  # Keyboard
+                                    if not keyboard_input.active:
+                                        keyboard_input.active = True
+                                        cv2.putText(img, "Keyboard Mode Opened", (50, notification_y),
+                                                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 0), 4)
+                                        cv2.putText(img, "Keyboard Mode Opened", (50, notification_y),
+                                                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+                                    if len(overlayList) > 10:
+                                        header = overlayList[10]
+                                    show_guide = False
 
-                    # Brush/Eraser size controls
-                    elif 1155 < x1 < 1280 and y1 > 650:  # Bottom right area
-                        if x1 < 1200:  # Left side - decrease size
-                            if drawColor == (0, 0, 0):  # Eraser
-                                eraserSize = max(10, eraserSize - 5)
-                            else:  # Brush
-                                brushSize = max(1, brushSize - 1)
-                        else:  # Right side - increase size
-                            if drawColor == (0, 0, 0):  # Eraser
-                                eraserSize = min(200, eraserSize + 5)
-                            else:  # Brush
-                                brushSize = min(50, brushSize + 1)
-                        # Draw black outline (thicker)
-                        cv2.putText(img, f"{'Eraser' if drawColor == (0, 0, 0) else 'Brush'} size: {eraserSize if drawColor == (0, 0, 0) else brushSize}", 
-                                    (50, notification_y), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 0), 4)
-                        # Draw main white text (thinner)
-                        cv2.putText(img, f"{'Eraser' if drawColor == (0, 0, 0) else 'Brush'} size: {eraserSize if drawColor == (0, 0, 0) else brushSize}", 
-                                    (50, notification_y), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+                                break
 
                 # Show selection rectangle
                 cv2.rectangle(img, (x1, y1 - 25), (x2, y2 + 25), drawColor, cv2.FILLED)
@@ -660,58 +856,40 @@ try:
                     # Check if swipe threshold is crossed
                     if abs(delta_x) > swipe_threshold and swipe_active and guideList:
                         if delta_x > 0:
-                            # Swipe right - previous guide
                             current_guide_index = max(0, current_guide_index - 1)
                         else:
-                            # Swipe left - next guide
                             current_guide_index = min(len(guideList) - 1, current_guide_index + 1)
 
                         if 0 <= current_guide_index < len(guideList):
                             current_guide = guideList[current_guide_index]
                             show_transient_notification(f"Guide {current_guide_index + 1}/{len(guideList)}")
-                        swipe_start_x = x1  # Reset swipe start position after successful swipe
-                        swipe_active = False  # avoid rapid multiple swipes
+                        swipe_start_x = x1
+                        swipe_active = False
 
                 # Enhanced visual feedback for guide cursor
                 cursor_radius = 20
-                # Outer circle (glow effect)
                 cv2.circle(img, (x1, y1), cursor_radius + 5, (0, 255, 0, 50), 2)
-                # Inner circle (solid fill)
                 cv2.circle(img, (x1, y1), cursor_radius, (0, 255, 0), cv2.FILLED)
-                # Center point
                 cv2.circle(img, (x1, y1), 3, (0, 0, 0), cv2.FILLED)
                 
                 # Show current guide number
                 guide_text = f"Guide: {current_guide_index + 1}/{len(guideList)}"
                 text_size = cv2.getTextSize(guide_text, cv2.FONT_HERSHEY_SIMPLEX, 0.7, 2)[0]
-                text_x = max(10, min(x1 - text_size[0] // 2, 1280 - text_size[0] - 10))
+                text_x = max(10, min(x1 - text_size[0] // 2, compat.settings['width'] - text_size[0] - 10))
                 text_y = max(30, y1 - cursor_radius - 10)
                 
-                # Text background
-                cv2.rectangle(img, 
-                            (text_x - 5, text_y - 25), 
-                            (text_x + text_size[0] + 5, text_y + 5), 
-                            (0, 0, 0), -1)
-                # Text
-                cv2.putText(img, guide_text, (text_x, text_y), 
-                           cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
-                
-                # Show swipe direction hint with simple text
-                if swipe_start_x is not None and abs(delta_x) > 10:
-                    direction = "" if delta_x > 0 else ""
-                    cv2.putText(img, direction, (x1 + 30, y1 - 10), 
-                               cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2, cv2.LINE_AA)
+                cv2.rectangle(img, (text_x - 5, text_y - 25), (text_x + text_size[0] + 5, text_y + 5), (0, 0, 0), -1)
+                cv2.putText(img, guide_text, (text_x, text_y), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
 
             # DRAWING MODE - One index finger, guide hidden, keyboard not active
             elif fingers[1] and not fingers[2] and not show_guide and not keyboard_input.active:
-                swipe_start_x = None  # cancel swipe tracking when drawing
+                swipe_start_x = None
 
                 # Eraser: Check for overlapping with existing text
                 if drawColor == (0, 0, 0):
                     for i, obj in enumerate(reversed(keyboard_input.text_objects)):
                         idx = len(keyboard_input.text_objects) - 1 - i
                         text_size = cv2.getTextSize(obj['text'], obj['font'], obj['scale'], obj['thickness'])[0]
-
                         x_text, y_text = obj['position']
                         if (x_text <= x1 <= x_text + text_size[0] and
                                 y_text - text_size[1] <= y1 <= y_text):
@@ -738,9 +916,9 @@ try:
                         cv2.line(imgCanvas, (xp, yp), point, drawColor, brushSize)
                     xp, yp = point
 
-                # Update undo/redo stacks (with size limit)
+                # Update undo/redo stacks
                 if len(undoStack) >= MAX_UNDO_STACK_SIZE:
-                    undoStack.pop(0)  # Remove oldest state
+                    undoStack.pop(0)
                 undoStack.append(save_state())
                 redoStack.clear()
 
@@ -755,11 +933,10 @@ try:
                 else:
                     keyboard_input.update_drag(center_x, center_y)
 
-                # Visual feedback
                 cv2.circle(img, (center_x, center_y), 15, (0, 255, 255), cv2.FILLED)
 
             else:
-                # Reset states when fingers not up or mode not active
+                # Reset states
                 xp, yp = 0, 0
                 swipe_start_x = None
                 swipe_active = False
@@ -767,7 +944,7 @@ try:
                     keyboard_input.end_drag()
 
         else:
-            # No hand detected: reset everything
+            # No hand detected
             xp, yp = 0, 0
             swipe_start_x = None
             swipe_active = False
@@ -784,9 +961,8 @@ try:
         try:
             key = cv2.waitKey(1) & 0xFF
             if keyboard_input.process_key_input(key):
-                # When text is confirmed or changed, save state
                 if len(undoStack) >= MAX_UNDO_STACK_SIZE:
-                    undoStack.pop(0)  # Remove oldest state
+                    undoStack.pop(0)
                 undoStack.append(save_state())
                 redoStack.clear()
         except KeyboardInterrupt:
@@ -794,97 +970,84 @@ try:
             on_close()
 
         # 8. Blend the drawing canvas with the camera feed
-        # Create a mask from the canvas where there are drawings (non-black pixels)
         mask = cv2.cvtColor(cv2.cvtColor(imgCanvas, cv2.COLOR_BGR2GRAY), cv2.COLOR_GRAY2BGR)
         mask = (mask > 0).astype(np.uint8) * 255
-        
-        # Use the mask to blend the canvas onto the camera feed
-        img = cv2.bitwise_and(img, 255 - mask)  # Remove drawn areas from camera feed
-        img = cv2.add(img, imgCanvas)  # Add the canvas with drawings
+        img = cv2.bitwise_and(img, 255 - mask)
+        img = cv2.add(img, imgCanvas)
 
-        # 9. Set Header Image - FIXED: Now uses 78 pixel height
-        if header is not None:
-            img[0:78, 0:1280] = header  # FIXED: Changed from 125 to 78
+        # 9. Set Header Image (FIXED - Icons will now display properly)
+        current_header = get_header_for_resolution()
+        if current_header is not None:
+            header_height = current_header.shape[0]
+            # Make sure we don't exceed image bounds
+            if header_height <= img.shape[0] and current_header.shape[1] <= img.shape[1]:
+                img[0:header_height, 0:current_header.shape[1]] = current_header
 
         # 10. Draw keyboard text and placeholder
         if keyboard_input.active:
-            # Draw semi-transparent typing area background
-            typing_area = np.zeros((100, 1280, 3), dtype=np.uint8)
-            typing_area[:] = (50, 50, 50)  # Dark gray background
-            img[620:720, 0:1280] = cv2.addWeighted(img[620:720, 0:1280], 0.7, typing_area, 0.3, 0)
+            typing_area = np.zeros((100, compat.settings['width'], 3), dtype=np.uint8)
+            typing_area[:] = (50, 50, 50)
+            img[compat.settings['height']-100:compat.settings['height'], 0:compat.settings['width']] = cv2.addWeighted(
+                img[compat.settings['height']-100:compat.settings['height'], 0:compat.settings['width']], 0.7, typing_area, 0.3, 0)
 
             keyboard_input.draw(img)
 
-            # Draw instruction text
             instruction_text = "Press Enter to confirm text, ESC to cancel"
-            cv2.putText(img, instruction_text, (20, 700),
+            cv2.putText(img, instruction_text, (20, compat.settings['height'] - 20),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.5, (200, 200, 200), 1)
         else:
-            # Draw existing text objects even when keyboard is inactive
             keyboard_input.draw(img)
 
         # 11. Display Guide Image if active
         if show_guide and current_guide is not None:
-            # Create a composite image that preserves the drawing canvas
-            guide_area = img[78:720, 0:1280].copy()  # FIXED: Changed from 125 to 78
-            # Blend the guide with the current camera feed (50% opacity)
+            header_height = get_header_for_resolution().shape[0] if get_header_for_resolution() is not None else 78
+            guide_area = img[header_height:compat.settings['height'], 0:compat.settings['width']].copy()
             blended_guide = cv2.addWeighted(current_guide, 0.3, guide_area, 0.3, 0)
-            # Put the blended guide back
-            img[78:720, 0:1280] = blended_guide  # FIXED: Changed from 125 to 78
+            img[header_height:compat.settings['height'], 0:compat.settings['width']] = blended_guide
 
-            # Display guide navigation instructions
-            cv2.putText(img, "", (50, notification_y),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
-            cv2.putText(img, f"Guide {current_guide_index + 1}/{len(guideList)}", (1100, notification_y),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+            cv2.putText(img, f"Guide {current_guide_index + 1}/{len(guideList)}", 
+                       (compat.settings['width'] - 200, notification_y),
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
 
-        # Show notification if active - Positioned below header
+        # Show notification if active
         current_time = time.time()
         if current_time < notification_time and notification_text:
-            # Position notification below header (header is 78px tall)
-            notification_y = 110  # 78 (header) + 32 (padding)
-            
-            # Draw notification background
             text_size = cv2.getTextSize(notification_text, cv2.FONT_HERSHEY_SIMPLEX, 0.7, 2)[0]
             cv2.rectangle(img, (10, notification_y - 25), (20 + text_size[0], notification_y + 5), (50, 50, 50), -1)
             cv2.rectangle(img, (10, notification_y - 25), (20 + text_size[0], notification_y + 5), (200, 200, 200), 1)
-            
-            # Draw notification text
             cv2.putText(img, notification_text, (20, notification_y), 
                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
 
         # 12. Display the image
-        cv2.imshow("Beyond The Brush", img)
+        cv2.imshow(window_name, img)
 
-        # Periodic garbage collection
-        if frame_count % gc_interval == 0:
+        # Adaptive garbage collection
+        if frame_count % 50 == 0:
             gc.collect()
 
-        # Maintain 60 FPS
+        # Maintain target FPS
         elapsed_time = time.time() - start_time
         if elapsed_time < time_per_frame:
             time.sleep(time_per_frame - elapsed_time)
 
-        # Process Tkinter events and handle window close
+        # Process Tkinter events
         try:
-            size_adjuster.window.update()  # Process size adjuster events
+            size_adjuster.window.update()
         except tk.TclError:
-            # Tkinter window was closed
             break
 
-        # Check if window should close (immediate response to close button)
+        # Check if window should close
         try:
-            window_visible = cv2.getWindowProperty("Beyond The Brush", cv2.WND_PROP_VISIBLE)
+            window_visible = cv2.getWindowProperty(window_name, cv2.WND_PROP_VISIBLE)
             if window_visible < 1:
                 on_close()
                 break
         except cv2.error:
-            # Window was closed
             on_close()
             break
             
-        # Check for ESC key press to exit
-        if cv2.waitKey(1) & 0xFF == 27:  # 27 is the ESC key
+        # Check for ESC key
+        if cv2.waitKey(1) & 0xFF == 27:
             on_close()
             break
             
@@ -893,6 +1056,8 @@ except KeyboardInterrupt:
     on_close()
 except Exception as e:
     print(f"\nUnexpected error: {e}")
+    import traceback
+    traceback.print_exc()
     on_close()
 finally:
     try:
@@ -902,9 +1067,12 @@ finally:
 
 def run_application(role=None):
     try:
-        pass
+        # This function is called by the launcher
+        print("VirtualPainter application started successfully!")
     except Exception as e:
         print(f"Error running application: {e}")
+        import traceback
+        traceback.print_exc()
 
 if __name__ == "__main__":
     role = None
