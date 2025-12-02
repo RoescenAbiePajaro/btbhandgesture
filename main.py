@@ -12,10 +12,6 @@ from pymongo import MongoClient
 import os
 from dotenv import load_dotenv
 import gc
-
-# Import click tracker
-from track_click import tracker
-
 # ----------------------------------------------------------------------
 # 1. Resource-path helper (works for dev & frozen one-file exe)
 # ----------------------------------------------------------------------
@@ -381,8 +377,6 @@ class Launcher:
             return False
 
     def on_enter_click(self):
-        tracker.track_click(button="btb_enter", page="beyondthebrush_app")
-
         if not self.check_internet_connection():
             messagebox.showerror(
                 "Connection Error",
@@ -457,7 +451,6 @@ class Launcher:
             pass
 
     def force_close(self):
-        tracker.track_click(button="btb_exit", page="beyondthebrush_app")
         self.cancel_timeout()
         self.stop_loading_animations()
         try:

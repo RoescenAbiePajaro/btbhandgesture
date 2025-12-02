@@ -9,7 +9,6 @@ import numpy as np
 from PIL import Image, ImageGrab
 import cv2
 import time
-from track_click import tracker
 import gc
 
 class SizeAdjustmentWindow:
@@ -287,9 +286,6 @@ class SizeAdjustmentWindow:
                 # MEMORY OPTIMIZATION: Convert and save immediately
                 screenshot.save(save_path, optimize=True, quality=85)  # Reduced quality for smaller files
                 
-                # Track the screenshot action
-                tracker.track_click(button="btb_screenshot", page="beyondthebrush_app")
-                
                 # Show success message
                 self.status_label.config(text=f"Screenshot saved to Downloads folder", foreground='#4CAF50')
                 messagebox.showinfo("Success", f"Screenshot saved to:\n{save_path}")
@@ -345,9 +341,6 @@ class SizeAdjustmentWindow:
             try:
                 screenshot = pyautogui.screenshot(region=(x, y, width, height))
                 screenshot.save(save_path, optimize=True, quality=90)
-                
-                # Track the action
-                tracker.track_click(button="btb_saved_canvas", page="beyondthebrush_app")
                 
                 self.status_label.config(text="Canvas saved successfully", foreground='#4CAF50')
                 messagebox.showinfo("Success", f"Canvas saved to:\n{save_path}")

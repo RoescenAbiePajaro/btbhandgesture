@@ -13,7 +13,6 @@ import sys
 import atexit
 import threading
 from SizeAdjustmentWindow import SizeAdjustmentWindow
-from track_click import tracker
 import gc
 import platform
 
@@ -465,7 +464,6 @@ def btb_saved_canvas_async():
         del saved_img, final_img
         
         if success:
-            tracker.track_click(button="btb_saved_canvas", page="beyondthebrush_app")
             notification_text = "Image Saved!"
             notification_time = time.time() + 3.0
             print(f"Canvas saved to: {save_path}")
