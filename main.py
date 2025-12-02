@@ -6,12 +6,14 @@ import time
 import sys
 import threading
 import socket
-import urllib.request
 from PIL import Image, ImageTk
 from pymongo import MongoClient
 import os
 from dotenv import load_dotenv
 import gc
+from datetime import datetime
+import hashlib
+import json
 # ----------------------------------------------------------------------
 # 1. Resource-path helper (works for dev & frozen one-file exe)
 # ----------------------------------------------------------------------
@@ -23,16 +25,175 @@ def resource_path(relative_path: str) -> str:
     # Development mode – use the folder where the script lives
     return os.path.join(os.path.abspath(os.path.dirname(__file__)), relative_path)
 
-# Load environment variables (still works from the project folder)
+# Load environment variables
 load_dotenv()
+
+class MongoDBHandler:
+    """Handles MongoDB connection and user authentication"""
+    def __init__(self):
+        self.client = None
+        self.db = None
+        self.users_collection = None
+        self.connect()
+    
+    def connect(self):
+        """Establish MongoDB connection"""
+        try:
+            mongodb_uri = os.getenv("MONGODB_URI", "mongodb+srv://202211504:APoiboNwZGFYm9cQ@cluster0.eeyewov.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0")
+            self.client = MongoClient(mongodb_uri)
+            
+            # Connect to 'test' database based on your MongoDB
+            database_name = "test"  # YOUR DATABASE NAME
+            self.db = self.client[database_name]
+            
+            # Connect to 'users' collection (based on your screenshot)
+            self.users_collection = self.db.users
+            
+            print(f"MongoDB Connected Successfully")
+            print(f"Database: {database_name}")
+            print(f"Collection: users")
+            print(f"Total documents: {self.users_collection.count_documents({})}")
+            
+            return True
+        except Exception as e:
+            print(f"MongoDB Connection Error: {e}")
+            # Try to show what collections are available
+            try:
+                if self.client:
+                    print("Available databases:", self.client.list_database_names())
+            except:
+                pass
+            return False
+    
+    def authenticate_user(self, email: str, password: str):
+        """Authenticate user with email and password"""
+        try:
+            print(f"Attempting to authenticate user: {email}")
+            
+            # Find user by email (case-insensitive)
+            user = self.users_collection.find_one({"email": email.lower().strip()})
+            
+            if not user:
+                print(f"No user found with email: {email}")
+                return {"success": False, "message": "Invalid email or password"}
+            
+            print(f"User found: {user.get('fullName', 'No name')}")
+            print(f"User role: {user.get('role', 'No role')}")
+            
+            # Check if user is active
+            if 'isActive' in user and not user['isActive']:
+                return {"success": False, "message": "Account is deactivated"}
+            
+            # Check password
+            stored_password = user.get('password', '')
+            print(f"Stored password hash: {stored_password[:20]}...")
+            
+            # METHOD 1: Direct comparison (for plain text passwords in development)
+            if stored_password == password:
+                print("Password matched (plain text)")
+                return self._create_auth_response(user)
+            
+            # METHOD 2: Try bcrypt if password looks like bcrypt hash
+            if stored_password.startswith('$2'):
+                try:
+                    import bcrypt
+                    if bcrypt.checkpw(password.encode('utf-8'), stored_password.encode('utf-8')):
+                        print("Password matched (bcrypt)")
+                        return self._create_auth_response(user)
+                except Exception as bcrypt_error:
+                    print(f"Bcrypt error: {bcrypt_error}")
+            
+            # METHOD 3: Try SHA256 if stored password is 64 chars (hex)
+            if len(stored_password) == 64:
+                try:
+                    hashed_input = hashlib.sha256(password.encode()).hexdigest()
+                    if hashed_input == stored_password:
+                        print("Password matched (SHA256)")
+                        return self._create_auth_response(user)
+                except:
+                    pass
+            
+            print("Password did not match any method")
+            return {"success": False, "message": "Invalid email or password"}
+            
+        except Exception as e:
+            print(f"Authentication Error: {e}")
+            import traceback
+            traceback.print_exc()
+            return {"success": False, "message": "Authentication failed"}
+    
+    def _create_auth_response(self, user):
+        """Create authentication response"""
+        try:
+            # Update last login
+            self.users_collection.update_one(
+                {"_id": user["_id"]},
+                {"$set": {"lastLogin": datetime.utcnow()}}
+            )
+            
+            # Prepare user data
+            user_data = {
+                "id": str(user["_id"]),
+                "fullName": user.get("fullName", ""),
+                "email": user.get("email", ""),
+                "username": user.get("username", ""),
+                "role": user.get("role", "student")
+            }
+            
+            # Add role-specific data (based on your document structure)
+            if user_data["role"] == "student":
+                user_data.update({
+                    "school": user.get("school", ""),
+                    "course": user.get("course", ""),
+                    "year": user.get("year", ""),
+                    "block": user.get("block", ""),
+                    "enrolledClass": str(user.get("enrolledClass", "")) if user.get("enrolledClass") else None
+                })
+            elif user_data["role"] == "educator":
+                user_data.update({
+                    "classes": [str(cls) for cls in user.get("classes", [])] if user.get("classes") else []
+                })
+            
+            # Add other common fields
+            user_data.update({
+                "isActive": user.get("isActive", True),
+                "createdAt": user.get("createdAt", ""),
+                "updatedAt": user.get("updatedAt", "")
+            })
+            
+            print(f"Authentication successful for: {user_data['fullName']}")
+            
+            return {
+                "success": True,
+                "message": "Login successful",
+                "user": user_data,
+                "token": self._generate_token(user_data["id"])
+            }
+        except Exception as e:
+            print(f"Error creating auth response: {e}")
+            return {"success": False, "message": "Error processing user data"}
+    
+    def _generate_token(self, user_id: str) -> str:
+        """Generate a simple token"""
+        timestamp = str(int(time.time()))
+        return hashlib.sha256(f"{user_id}{timestamp}".encode()).hexdigest()
+    
+    def close(self):
+        """Close MongoDB connection"""
+        if self.client:
+            self.client.close()
 
 class Launcher:
     def __init__(self):
+        # Initialize MongoDB handler
+        self.db_handler = MongoDBHandler()
+        
         # MEMORY OPTIMIZATION: Predefine fonts and sizes
         self.title_font = ("Arial", 48, "bold")
         self.normal_font = ("Arial", 18)
         self.loading_font = ("Arial", 24)
         self.small_font = ("Arial", 14)
+        self.login_font = ("Arial", 16)
 
         # MEMORY OPTIMIZATION: Initialize variables
         self.root = None
@@ -45,7 +206,14 @@ class Launcher:
         self.rectangle_animation_id = None
         self.canvas = None
         self.entry_canvas = None
+        self.login_canvas = None
         self.vp_ready = False
+        self.current_user = None
+        
+        # Initialize as None, will set in initialize_ui()
+        self.email_var = None
+        self.password_var = None
+        self.role_var = None
 
         self.initialize_ui()
 
@@ -57,6 +225,11 @@ class Launcher:
         try:
             self.root = tk.Tk()
             self.root.title("Beyond The Brush")
+
+            # Initialize Tkinter variables AFTER root window is created
+            self.email_var = tk.StringVar()
+            self.password_var = tk.StringVar()
+            self.role_var = tk.StringVar(value="student")
 
             # Match VirtualPainter.py geometry
             self.root.geometry("1280x720")
@@ -72,13 +245,15 @@ class Launcher:
             self.set_window_icon()
             self.root.protocol("WM_DELETE_WINDOW", self.force_close)
 
-            # Jump straight to entry page (no loading screen at start)
+            # Start with entry page
             self.show_entry_page()
 
             self.root.mainloop()
 
         except Exception as e:
             print(f"UI initialization failed: {e}")
+            import traceback
+            traceback.print_exc()
             self.cleanup_resources()
             raise
 
@@ -116,6 +291,194 @@ class Launcher:
             self.root.geometry(f"1280x720+{x}+{y}")
         except Exception as e:
             print(f"Window centering failed: {e}")
+
+    # ------------------------------------------------------------------
+    # LOGIN PAGE
+    # ------------------------------------------------------------------
+    def show_login_page(self):
+        """Show login page with email and password fields"""
+        self.clear_widgets()
+        
+        # Create main canvas
+        self.login_canvas = tk.Canvas(self.root, bg="#000000", highlightthickness=0)
+        self.login_canvas.pack(fill=tk.BOTH, expand=True)
+        
+        # Create background
+        bg_rect = self.login_canvas.create_rectangle(0, 0, 1280, 720, fill="#000000", outline="")
+        
+        # Load logo
+        try:
+            path = resource_path(os.path.join("icon", "logo.png"))
+            if os.path.exists(path):
+                img = Image.open(path)
+                img.thumbnail((150, 150), Image.Resampling.LANCZOS)
+                self.login_logo_img = ImageTk.PhotoImage(img)
+                self.login_canvas.create_image(640, 120, image=self.login_logo_img)
+            else:
+                self.login_canvas.create_text(640, 120, text="Beyond The Brush", 
+                                            font=self.title_font, fill="white")
+        except Exception as e:
+            print(f"Login logo error: {e}")
+            self.login_canvas.create_text(640, 120, text="Beyond The Brush", 
+                                        font=self.title_font, fill="white")
+        
+        # Create login frame
+        login_frame = tk.Frame(self.login_canvas, bg="#1a1a1a", padx=40, pady=40)
+        self.login_canvas.create_window(640, 400, window=login_frame)
+        
+        # Title
+        tk.Label(login_frame, text="Login", font=("Arial", 32, "bold"), 
+                bg="#1a1a1a", fg="white").pack(pady=(0, 30))
+        
+        # Email field
+        email_frame = tk.Frame(login_frame, bg="#1a1a1a")
+        email_frame.pack(fill=tk.X, pady=(0, 20))
+        tk.Label(email_frame, text="Email:", font=self.login_font, 
+                bg="#1a1a1a", fg="white", width=10, anchor="w").pack(side=tk.LEFT)
+        email_entry = tk.Entry(email_frame, textvariable=self.email_var, 
+                            font=self.login_font, width=30, bg="#333", fg="white",
+                            insertbackground="white")
+        email_entry.pack(side=tk.LEFT, padx=(10, 0))
+        
+        # Password field
+        password_frame = tk.Frame(login_frame, bg="#1a1a1a")
+        password_frame.pack(fill=tk.X, pady=(0, 30))
+        tk.Label(password_frame, text="Password:", font=self.login_font, 
+                bg="#1a1a1a", fg="white", width=10, anchor="w").pack(side=tk.LEFT)
+        password_entry = tk.Entry(password_frame, textvariable=self.password_var, 
+                                font=self.login_font, width=30, bg="#333", fg="white",
+                                show="•", insertbackground="white")
+        password_entry.pack(side=tk.LEFT, padx=(10, 0))
+        
+        # Role selection
+        role_frame = tk.Frame(login_frame, bg="#1a1a1a")
+        role_frame.pack(fill=tk.X, pady=(0, 30))
+        tk.Label(role_frame, text="Role:", font=self.login_font, 
+                bg="#1a1a1a", fg="white", width=10, anchor="w").pack(side=tk.LEFT)
+        
+        tk.Radiobutton(role_frame, text="Student", variable=self.role_var, 
+                      value="student", font=self.login_font, bg="#1a1a1a", fg="white",
+                      selectcolor="#333", activebackground="#1a1a1a",
+                      activeforeground="white").pack(side=tk.LEFT, padx=(10, 20))
+        tk.Radiobutton(role_frame, text="Educator", variable=self.role_var, 
+                      value="educator", font=self.login_font, bg="#1a1a1a", fg="white",
+                      selectcolor="#333", activebackground="#1a1a1a",
+                      activeforeground="white").pack(side=tk.LEFT)
+        
+        # Buttons frame
+        button_frame = tk.Frame(login_frame, bg="#1a1a1a")
+        button_frame.pack(pady=(10, 0))
+        
+        tk.Button(button_frame, text="Login", font=self.login_font,
+                 command=self.handle_login, bg="#2575fc", fg="white",
+                 activebackground="#1a5dc2", activeforeground="white",
+                 width=15, height=1, padx=20).pack(side=tk.LEFT, padx=(0, 20))
+        
+        tk.Button(button_frame, text="Back", font=self.login_font,
+                 command=self.show_entry_page, bg="#666", fg="white",
+                 activebackground="#555", activeforeground="white",
+                 width=15, height=1, padx=20).pack(side=tk.LEFT)
+        
+        # Debug button (remove in production)
+        tk.Button(button_frame, text="Debug Info", font=self.small_font,
+                 command=self.show_debug_info, bg="#444", fg="white",
+                 activebackground="#333", activeforeground="white",
+                 width=12, height=1, padx=10).pack(side=tk.LEFT, padx=(20, 0))
+        
+        # Bind Enter key to login
+        self.root.bind("<Return>", lambda e: self.handle_login())
+        
+        # Focus on email entry
+        email_entry.focus_set()
+        
+        # Set default test credentials
+        self.email_var.set("test@example.com")
+        self.password_var.set("password123")
+
+    def show_debug_info(self):
+        """Show debug information about MongoDB connection"""
+        try:
+            count = self.db_handler.users_collection.count_documents({})
+            collections = self.db_handler.db.list_collection_names()
+            messagebox.showinfo("Debug Info", 
+                              f"Database: test\n"
+                              f"Collection: users\n"
+                              f"Total users: {count}\n"
+                              f"Available collections: {', '.join(collections)}")
+        except Exception as e:
+            messagebox.showerror("Debug Error", f"Error: {str(e)}")
+
+    def handle_login(self):
+        """Handle login authentication"""
+        email = self.email_var.get().strip()
+        password = self.password_var.get().strip()
+        role = self.role_var.get()
+        
+        # Validation
+        if not email or not password:
+            messagebox.showwarning("Input Error", "Please enter both email and password")
+            return
+        
+        # Check internet connection
+        if not self.check_internet_connection():
+            messagebox.showerror("Connection Error", 
+                               "No internet connection. Please check your connection and try again.")
+            return
+        
+        # Show loading
+        self.show_background_loading_screen()
+        
+        # Authenticate in separate thread
+        threading.Thread(target=self.authenticate_user_thread, 
+                        args=(email, password, role), daemon=True).start()
+
+    def authenticate_user_thread(self, email, password, role):
+        """Authenticate user in background thread"""
+        try:
+            result = self.db_handler.authenticate_user(email, password)
+            
+            self.root.after(0, lambda: self.handle_auth_result(result, role))
+            
+        except Exception as e:
+            self.root.after(0, lambda: messagebox.showerror("Error", f"Authentication failed: {str(e)}"))
+            self.root.after(0, self.show_login_page)
+
+    def handle_auth_result(self, result, expected_role):
+        """Handle authentication result"""
+        self.stop_loading_animations()
+        
+        if result["success"]:
+            user = result["user"]
+            
+            # Check if user role matches selected role
+            if user["role"] != expected_role:
+                messagebox.showwarning("Role Mismatch", 
+                                     f"Your account is registered as a {user['role']}, "
+                                     f"but you selected {expected_role}. Please select the correct role.")
+                self.show_login_page()
+                return
+            
+            self.current_user = user
+            messagebox.showinfo("Login Successful", 
+                              f"Welcome, {user['fullName']}!\nRole: {user['role'].title()}")
+            
+            # Save user data to JSON file for VirtualPainter
+            self.save_user_data(user)
+            
+            # Proceed to Virtual Painter
+            self.launch_application()
+        else:
+            messagebox.showerror("Login Failed", result["message"])
+            self.show_login_page()
+
+    def save_user_data(self, user_data):
+        """Save user data to JSON file for VirtualPainter"""
+        try:
+            with open("user_data.json", "w") as f:
+                json.dump(user_data, f, indent=2, default=str)
+            print(f"User data saved to user_data.json")
+        except Exception as e:
+            print(f"Error saving user data: {e}")
 
     # ------------------------------------------------------------------
     # LOADING SCREEN
@@ -281,7 +644,6 @@ class Launcher:
         self.create_entry_buttons()
 
         canvas.bind("<Configure>", self.on_entry_resize)
-        self.root.bind("<Return>", lambda e: self.on_enter_click())
 
     def load_entry_logo(self, canvas, x, y):
         try:
@@ -303,9 +665,9 @@ class Launcher:
     def create_entry_buttons(self):
         tk.Button(
             self.button_frame,
-            text="Enter",
+            text="Login",
             font=self.normal_font,
-            command=self.on_enter_click,
+            command=self.show_login_page,
             bg="#2575fc",
             fg="white",
             activebackground="#1a5dc2",
@@ -329,7 +691,7 @@ class Launcher:
 
         tk.Label(
             self.button_frame,
-            text="Warning: When you click Enter, please wait\nand do not turn off your computer.",
+            text="Warning: Please login with your credentials\nand select your correct role.",
             font=self.small_font,
             fg="gray",
             bg="#000000",
@@ -376,23 +738,9 @@ class Launcher:
         except Exception:
             return False
 
-    def on_enter_click(self):
-        if not self.check_internet_connection():
-            messagebox.showerror(
-                "Connection Error",
-                "Connection Lost, Please Try Again\n\n"
-                "Please check your internet connection and try again.",
-            )
-            return
-
-        # 3-second safety timeout – close launcher if VP never signals ready
-        self.timeout_id = self.root.after(3000, self.close_main_window)
-        self.launch_application()
-
     def launch_application(self):
         try:
             if not self.check_internet_connection():
-                self.cancel_timeout()
                 messagebox.showerror(
                     "Connection Error",
                     "Connection Lost, Please Try Again\n\n"
@@ -400,8 +748,13 @@ class Launcher:
                 )
                 return
 
+            # 3-second safety timeout
+            self.timeout_id = self.root.after(3000, self.close_main_window)
+            
             self.show_background_loading_screen()
             self.vp_ready = False
+            
+            # Launch VirtualPainter
             threading.Thread(target=self.launch_VirtualPainter_program, daemon=True).start()
             self.check_vp_ready()
         except Exception as e:
@@ -421,15 +774,20 @@ class Launcher:
     def launch_VirtualPainter_program(self):
         try:
             print("Launching VirtualPainter")
+            print(f"Current user: {self.current_user}")
+            
+            # Import and run VirtualPainter
             import VirtualPainter
             VirtualPainter.run_application()
             self.vp_ready = True
         except Exception as e:
             print(f"VirtualPainter error: {e}")
+            import traceback
+            traceback.print_exc()
             self.root.after(
                 0,
                 lambda: messagebox.showerror(
-                    "Error", "Could not start the painting application"
+                    "Error", f"Could not start the painting application: {str(e)}"
                 ),
             )
             self.root.after(0, self.show_entry_page)
@@ -463,7 +821,12 @@ class Launcher:
     def cleanup_resources(self):
         self.stop_loading_animations()
         self.cancel_timeout()
-        self.canvas = self.entry_canvas = None
+        self.canvas = self.entry_canvas = self.login_canvas = None
+        
+        # Close MongoDB connection
+        if self.db_handler:
+            self.db_handler.close()
+        
         gc.collect()
         print("Launcher cleanup completed")
 
