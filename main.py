@@ -391,9 +391,6 @@ class Launcher:
         # Focus on email entry
         email_entry.focus_set()
         
-        # Set default test credentials
-        self.email_var.set("test@example.com")
-        self.password_var.set("password123")
 
     def show_debug_info(self):
         """Show debug information about MongoDB connection"""
