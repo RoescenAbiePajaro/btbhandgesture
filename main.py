@@ -14,6 +14,8 @@ import gc
 from datetime import datetime
 import hashlib
 import json
+import base64
+
 # ----------------------------------------------------------------------
 # 1. Resource-path helper (works for dev & frozen one-file exe)
 # ----------------------------------------------------------------------
@@ -34,6 +36,7 @@ class MongoDBHandler:
         self.client = None
         self.db = None
         self.users_collection = None
+        self.save_uploads_collection = None  # Collection for saved images
         self.connect()
     
     def connect(self):
@@ -42,17 +45,21 @@ class MongoDBHandler:
             mongodb_uri = os.getenv("MONGODB_URI", "mongodb+srv://202211504:APoiboNwZGFYm9cQ@cluster0.eeyewov.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0")
             self.client = MongoClient(mongodb_uri)
             
-            # Connect to 'test' database based on your MongoDB
-            database_name = "test"  # YOUR DATABASE NAME
+            # Connect to 'test' database
+            database_name = "test"
             self.db = self.client[database_name]
             
-            # Connect to 'users' collection (based on your screenshot)
+            # Connect to 'users' collection
             self.users_collection = self.db.users
+            
+            # Connect to 'save_uploads' collection for saved images
+            self.save_uploads_collection = self.db.save_uploads
             
             print(f"MongoDB Connected Successfully")
             print(f"Database: {database_name}")
-            print(f"Collection: users")
-            print(f"Total documents: {self.users_collection.count_documents({})}")
+            print(f"Users Collection: users")
+            print(f"Uploads Collection: save_uploads")
+            print(f"Total users: {self.users_collection.count_documents({})}")
             
             return True
         except Exception as e:
@@ -86,7 +93,6 @@ class MongoDBHandler:
             
             # Check password
             stored_password = user.get('password', '')
-            print(f"Stored password hash: {stored_password[:20]}...")
             
             # METHOD 1: Direct comparison (for plain text passwords in development)
             if stored_password == password:
@@ -140,7 +146,7 @@ class MongoDBHandler:
                 "role": user.get("role", "student")
             }
             
-            # Add role-specific data (based on your document structure)
+            # Add role-specific data
             if user_data["role"] == "student":
                 user_data.update({
                     "school": user.get("school", ""),
@@ -173,6 +179,70 @@ class MongoDBHandler:
             print(f"Error creating auth response: {e}")
             return {"success": False, "message": "Error processing user data"}
     
+    def save_image_to_db(self, user_email: str, user_role: str, image_path: str, image_data=None):
+        """Save uploaded image to save_uploads collection"""
+        try:
+            print(f"Saving image to MongoDB for user: {user_email}")
+            
+            # Read image if data not provided
+            if image_data is None:
+                with open(image_path, 'rb') as f:
+                    image_data = f.read()
+            
+            # Convert to base64
+            image_base64 = base64.b64encode(image_data).decode('utf-8')
+            
+            # Get file info
+            file_size = len(image_data)
+            file_name = os.path.basename(image_path)
+            
+            # Create document
+            upload_doc = {
+                "user_email": user_email.lower().strip(),
+                "user_role": user_role,
+                "file_name": file_name,
+                "file_path": image_path,
+                "file_size": file_size,
+                "image_data": image_base64,
+                "upload_date": datetime.utcnow(),
+                "timestamp": time.time()
+            }
+            
+            # Insert into save_uploads collection
+            result = self.save_uploads_collection.insert_one(upload_doc)
+            
+            print(f"Image saved to database. Document ID: {result.inserted_id}")
+            return {
+                "success": True,
+                "message": "Image saved to database",
+                "document_id": str(result.inserted_id)
+            }
+            
+        except Exception as e:
+            print(f"Error saving image to database: {e}")
+            import traceback
+            traceback.print_exc()
+            return {"success": False, "message": f"Database save failed: {str(e)}"}
+    
+    def get_user_uploads(self, user_email: str):
+        """Get all uploaded images for a user"""
+        try:
+            uploads = list(self.save_uploads_collection.find(
+                {"user_email": user_email.lower().strip()},
+                {"_id": 1, "file_name": 1, "upload_date": 1, "file_size": 1, "user_role": 1}
+            ).sort("upload_date", -1))
+            
+            # Convert ObjectId to string and format date
+            for upload in uploads:
+                upload['_id'] = str(upload['_id'])
+                if 'upload_date' in upload:
+                    upload['upload_date'] = upload['upload_date'].isoformat()
+            
+            return uploads
+        except Exception as e:
+            print(f"Error fetching user uploads: {e}")
+            return []
+    
     def _generate_token(self, user_id: str) -> str:
         """Generate a simple token"""
         timestamp = str(int(time.time()))
@@ -187,6 +257,7 @@ class Launcher:
     def __init__(self):
         # Initialize MongoDB handler
         self.db_handler = MongoDBHandler()
+        self.current_user = None
         
         # MEMORY OPTIMIZATION: Predefine fonts and sizes
         self.title_font = ("Arial", 48, "bold")
@@ -208,7 +279,6 @@ class Launcher:
         self.entry_canvas = None
         self.login_canvas = None
         self.vp_ready = False
-        self.current_user = None
         
         # Initialize as None, will set in initialize_ui()
         self.email_var = None
@@ -395,13 +465,14 @@ class Launcher:
     def show_debug_info(self):
         """Show debug information about MongoDB connection"""
         try:
-            count = self.db_handler.users_collection.count_documents({})
+            user_count = self.db_handler.users_collection.count_documents({})
+            upload_count = self.db_handler.save_uploads_collection.count_documents({})
             collections = self.db_handler.db.list_collection_names()
             messagebox.showinfo("Debug Info", 
                               f"Database: test\n"
-                              f"Collection: users\n"
-                              f"Total users: {count}\n"
-                              f"Available collections: {', '.join(collections)}")
+                              f"Collection: users (Total: {user_count})\n"
+                              f"Collection: save_uploads (Total: {upload_count})\n"
+                              f"All collections: {', '.join(collections)}")
         except Exception as e:
             messagebox.showerror("Debug Error", f"Error: {str(e)}")
 

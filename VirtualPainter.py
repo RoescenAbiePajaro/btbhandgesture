@@ -15,6 +15,11 @@ import threading
 from SizeAdjustmentWindow import SizeAdjustmentWindow
 import gc
 import platform
+import json
+import base64
+from datetime import datetime
+from pymongo import MongoClient
+import hashlib
 
 # =============================================================================
 # UNIVERSAL COMPATIBILITY SETTINGS
@@ -85,6 +90,139 @@ compat = UniversalCompatibility()
 # Apply optimal settings
 fps = compat.settings['fps']
 time_per_frame = 1.0 / fps
+
+# =============================================================================
+# MONGODB IMAGE SAVER
+# =============================================================================
+
+class ImageDatabaseSaver:
+    """Handles saving images to MongoDB"""
+    def __init__(self):
+        self.client = None
+        self.db = None
+        self.collection = None
+        self.user_data = None
+        self.load_user_data()
+        self.connect()
+    
+    def load_user_data(self):
+        """Load user data from JSON file"""
+        try:
+            # Try multiple possible locations
+            possible_paths = [
+                "user_data.json",
+                os.path.join(os.path.dirname(os.path.abspath(__file__)), "user_data.json"),
+                os.path.join(os.path.expanduser("~"), "user_data.json")
+            ]
+            
+            for path in possible_paths:
+                if os.path.exists(path):
+                    with open(path, "r") as f:
+                        self.user_data = json.load(f)
+                    print(f" User data loaded from: {path}")
+                    print(f"  Email: {self.user_data.get('email', 'No email')}")
+                    print(f"  Role: {self.user_data.get('role', 'No role')}")
+                    return
+            
+            print(" No user_data.json found - images will be saved locally only")
+            self.user_data = None
+            
+        except Exception as e:
+            print(f" Error loading user data: {e}")
+            self.user_data = None
+    
+    def connect(self):
+        """Connect to MongoDB"""
+        try:
+            mongodb_uri = "mongodb+srv://202211504:APoiboNwZGFYm9cQ@cluster0.eeyewov.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0"
+            self.client = MongoClient(mongodb_uri)
+            self.db = self.client.test  # Your database name
+            self.collection = self.db.save_uploads  # Your collection name
+            print(" Connected to MongoDB for image saving")
+            
+            # Test connection
+            test_doc = {
+                "test": "connection",
+                "timestamp": datetime.utcnow()
+            }
+            result = self.collection.insert_one(test_doc)
+            print(f" Test document inserted with ID: {result.inserted_id}")
+            
+            # Clean up test document
+            self.collection.delete_one({"_id": result.inserted_id})
+            print(" Test document cleaned up")
+            
+            return True
+        except Exception as e:
+            print(f" MongoDB connection failed: {e}")
+            self.client = None
+            return False
+    
+    def save_image_to_db(self, image_path, image_data=None):
+        """Save image to MongoDB save_uploads collection"""
+        if not self.client or not self.user_data:
+            print(" Cannot save to DB: No connection or user data")
+            return {"success": False, "message": "No database connection or user data"}
+        
+        try:
+            # Read image if data not provided
+            if image_data is None:
+                with open(image_path, 'rb') as f:
+                    image_data = f.read()
+            
+            # Convert to base64
+            image_base64 = base64.b64encode(image_data).decode('utf-8')
+            
+            # Get file info
+            file_size = len(image_data)
+            file_name = os.path.basename(image_path)
+            
+            # Create document matching your MongoDB schema
+            upload_doc = {
+                "user_email": self.user_data.get('email', '').lower().strip(),
+                "user_role": self.user_data.get('role', 'student'),
+                "full_name": self.user_data.get('fullName', ''),
+                "file_name": file_name,
+                "file_path": image_path,
+                "file_size": file_size,
+                "image_data": image_base64,
+                "upload_date": datetime.utcnow(),
+                "timestamp": time.time(),
+                "app_name": "Beyond The Brush",
+                "version": "1.0.0"
+            }
+            
+            print(f" Attempting to save image to MongoDB...")
+            print(f"   User: {upload_doc['user_email']}")
+            print(f"   Role: {upload_doc['user_role']}")
+            print(f"   File: {upload_doc['file_name']}")
+            print(f"   Size: {upload_doc['file_size']} bytes")
+            
+            # Insert into save_uploads collection
+            result = self.collection.insert_one(upload_doc)
+            
+            print(f" Image saved to MongoDB. Document ID: {result.inserted_id}")
+            return {
+                "success": True,
+                "message": "Image saved to database",
+                "document_id": str(result.inserted_id)
+            }
+            
+        except Exception as e:
+            print(f" Error saving image to database: {e}")
+            import traceback
+            traceback.print_exc()
+            return {"success": False, "message": f"Database save failed: {str(e)}"}
+    
+    def close(self):
+        """Close MongoDB connection"""
+        if self.client:
+            self.client.close()
+            print(" MongoDB connection closed")
+            self.client.close()
+
+# Initialize MongoDB saver
+db_saver = ImageDatabaseSaver()
 
 # =============================================================================
 # UNIVERSAL CAMERA SYSTEM
@@ -379,6 +517,13 @@ def cleanup_resources():
     
     print("Cleaning up resources...")
     
+    # Close MongoDB connection
+    if 'db_saver' in globals() and db_saver is not None:
+        try:
+            db_saver.close()
+        except:
+            pass
+    
     # Release camera
     try:
         if 'cap' in globals() and cap is not None:
@@ -420,7 +565,7 @@ def cleanup_resources():
     gc.collect()
 
 def btb_saved_canvas_async():
-    """Save canvas with compatibility optimizations"""
+    """Save canvas with compatibility optimizations AND save to MongoDB"""
     global notification_text, notification_time
     
     try:
@@ -460,11 +605,42 @@ def btb_saved_canvas_async():
         
         success = cv2.imwrite(save_path, final_img)
         
+        # Save to MongoDB in background
+        mongo_success = False
+        mongo_message = ""
+        
+        if db_saver.user_data:
+            try:
+                # Read the saved image
+                with open(save_path, 'rb') as img_file:
+                    image_data = img_file.read()
+                
+                # Save to MongoDB
+                result = db_saver.save_image_to_db(save_path, image_data)
+                
+                if result["success"]:
+                    mongo_success = True
+                    doc_id = result["document_id"][:8]  # First 8 chars of ID
+                    mongo_message = f" (DB ID: {doc_id}...)"
+                    print(f"Image saved to MongoDB with ID: {result['document_id']}")
+                else:
+                    mongo_message = f" (DB save failed: {result['message']})"
+                    print(f"MongoDB save failed: {result['message']}")
+            except Exception as mongo_error:
+                mongo_message = " (DB error)"
+                print(f"MongoDB save error: {mongo_error}")
+        else:
+            mongo_message = " (No user logged in - local save only)"
+            print("No user data - saving locally only")
+        
         # Clean up
         del saved_img, final_img
         
         if success:
-            notification_text = "Image Saved!"
+            if mongo_success:
+                notification_text = f"Image Saved to Database!{mongo_message}"
+            else:
+                notification_text = f"Image Saved Locally{mongo_message}"
             notification_time = time.time() + 3.0
             print(f"Canvas saved to: {save_path}")
         else:
@@ -1067,6 +1243,8 @@ def run_application(role=None):
     try:
         # This function is called by the launcher
         print("VirtualPainter application started successfully!")
+        print(f"User logged in: {db_saver.user_data.get('email', 'No user')}")
+        print(f"User role: {db_saver.user_data.get('role', 'No role')}")
     except Exception as e:
         print(f"Error running application: {e}")
         import traceback
