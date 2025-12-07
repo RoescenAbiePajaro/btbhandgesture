@@ -934,14 +934,14 @@ try:
                                         cv2.putText(img, "Saving...", (50, notification_y),
                                                     cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
 
-                                elif i == 1:  # Pink
+                                elif i == 1:  # Dark Gray
                                     if len(overlayList) > 2:
                                         header = overlayList[2]
-                                    drawColor = (255, 0, 255)
-                                    cv2.putText(img, "Pink brush selected", (50, notification_y),
-                                                cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 0), 4)
-                                    cv2.putText(img, "Pink brush selected", (50, notification_y),
-                                                cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+                                    drawColor = (64, 64, 64)
+                                    cv2.putText(img, "Dark Gray brush selected", (50, notification_y),
+                                                cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 4)
+                                    cv2.putText(img, "Dark Gray brush selected", (50, notification_y),
+                                                cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 0), 2)
                                     show_guide = False
                                     keyboard_input.active = False
 
