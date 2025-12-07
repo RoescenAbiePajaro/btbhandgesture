@@ -564,18 +564,58 @@ def cleanup_resources():
     # Force garbage collection
     gc.collect()
 
+def save_to_template(canvas_img):
+    """Save the drawing onto the template image"""
+    try:
+        # Load the template image
+        template_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "Beyond The Brush Template.png")
+        if not os.path.exists(template_path):
+            print("Template image not found!")
+            return None
+            
+        # Read template and canvas images
+        template = cv2.imread(template_path)
+        if template is None:
+            print("Failed to load template image!")
+            return None
+            
+        # Resize canvas to match template dimensions if needed
+        if canvas_img.shape != template.shape[:2]:
+            canvas_img = cv2.resize(canvas_img, (template.shape[1], template.shape[0]))
+            
+        # Create a mask where the white background is
+        _, mask = cv2.threshold(cv2.cvtColor(canvas_img, cv2.COLOR_BGR2GRAY), 250, 255, cv2.THRESH_BINARY_INV)
+        
+        # Invert the mask to get the non-white areas
+        mask_inv = cv2.bitwise_not(mask)
+        
+        # Extract the drawing (non-white parts of canvas)
+        drawing = cv2.bitwise_and(canvas_img, canvas_img, mask=mask)
+        
+        # Extract the template background (white parts of canvas)
+        template_bg = cv2.bitwise_and(template, template, mask=mask_inv)
+        
+        # Combine the template background with the drawing
+        result = cv2.add(template_bg, drawing)
+        
+        # Save the result to beyondthebrush_app_saved_canvas folder
+        download_folder = os.path.join(os.path.expanduser("~"), "Downloads", "beyondthebrush_app_saved_canvas")
+        os.makedirs(download_folder, exist_ok=True)
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        output_path = os.path.join(download_folder, f"beyond_the_brush_{timestamp}.png")
+        cv2.imwrite(output_path, result)
+        print(f"Drawing saved to {output_path}")
+        return output_path
+        
+    except Exception as e:
+        print(f"Error saving to template: {e}")
+        return None
+
 def btb_saved_canvas_async():
-    """Save canvas with compatibility optimizations AND save to MongoDB"""
+    """Save canvas with compatibility optimizations, save to template, and optionally to MongoDB"""
     global notification_text, notification_time
     
     try:
-        download_folder = os.path.join(os.path.expanduser("~"), "Downloads")
-        save_folder = os.path.join(download_folder, "beyondthebrush_app_saved_canvas")
-        os.makedirs(save_folder, exist_ok=True)
-        
-        timestamp = time.strftime("%Y%m%d_%H%M%S")
-        save_path = os.path.join(save_folder, f"btb_saved_canvas_{timestamp}.png")
-
         # Create white canvas
         saved_img = np.ones_like(imgCanvas) * 255
         
@@ -585,7 +625,7 @@ def btb_saved_canvas_async():
 
         # Draw text objects
         for obj in keyboard_input.text_objects:
-            if obj['position'][1] > 78:
+            if obj['position'][1] > 78:  # Only draw text below header
                 cv2.putText(saved_img, obj['text'], obj['position'],
                           obj['font'], obj['scale'], (0, 0, 0), obj['thickness'] + 2)
                 cv2.putText(saved_img, obj['text'], obj['position'],
@@ -603,31 +643,33 @@ def btb_saved_canvas_async():
         
         final_img[0:src_height, 0:target_width] = saved_img[src_y_start:src_y_start+src_height, 0:target_width]
         
-        success = cv2.imwrite(save_path, final_img)
+        # Save to template (this will be the only version saved)
+        template_path = save_to_template(final_img)
+        success = template_path is not None and os.path.exists(template_path)
         
         # Save to MongoDB in background
         mongo_success = False
         mongo_message = ""
         
-        if db_saver.user_data:
+        if db_saver.user_data and template_path:
             try:
-                # Read the saved image
-                with open(save_path, 'rb') as img_file:
-                    image_data = img_file.read()
+                # Save only the template version to MongoDB
+                with open(template_path, 'rb') as template_file:
+                    template_data = template_file.read()
+                result = db_saver.save_image_to_db(template_path, template_data)
                 
-                # Save to MongoDB
-                result = db_saver.save_image_to_db(save_path, image_data)
-                
-                if result["success"]:
+                # Check result
+                if result.get("success", False):
                     mongo_success = True
-                    doc_id = result["document_id"][:8]  # First 8 chars of ID
+                    doc_id = result.get("document_id", "")[:8]  # First 8 chars of ID
                     mongo_message = f" (DB ID: {doc_id}...)"
-                    print(f"Image saved to MongoDB with ID: {result['document_id']}")
+                    print(f"Image saved to MongoDB with ID: {result.get('document_id', '')}")
                 else:
-                    mongo_message = f" (DB save failed: {result['message']})"
-                    print(f"MongoDB save failed: {result['message']}")
+                    mongo_message = f" (DB save failed: {result.get('message', 'Unknown error')})"
+                    print(f"MongoDB save failed: {result.get('message', 'Unknown error')}")
+                    
             except Exception as mongo_error:
-                mongo_message = " (DB error)"
+                mongo_message = f" (DB error: {str(mongo_error)})"
                 print(f"MongoDB save error: {mongo_error}")
         else:
             mongo_message = " (No user logged in - local save only)"
@@ -642,13 +684,13 @@ def btb_saved_canvas_async():
             else:
                 notification_text = f"Image Saved Locally{mongo_message}"
             notification_time = time.time() + 3.0
-            print(f"Canvas saved to: {save_path}")
+            print(f"Drawing saved to: {template_path}")
         else:
             raise Exception("cv2.imwrite returned False")
         
     except Exception as e:
         print(f"Error saving canvas: {str(e)}")
-        notification_text = "Error saving image!"
+        notification_text = f"Error saving image: {str(e)}"
         notification_time = time.time() + 3.0
     finally:
         gc.collect()
@@ -884,7 +926,7 @@ try:
                                     if current_time - last_save_time > SAVE_COOLDOWN:
                                         if len(overlayList) > 1:
                                             header = overlayList[1]
-                                        btb_saved_canvas()
+                                        btb_saved_canvas_async()
                                         last_save_time = current_time
                                         show_guide = False
                                         cv2.putText(img, "Saving...", (50, notification_y),
